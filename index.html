@@ -311,7 +311,7 @@
       const wheelNodes = findWheelCandidates(root);
       if (wheelNodes.length === 0) {
         logCarStructure(root);
-        return { wheels: [], steeringPivots: [], radius: 0.3 };
+        return { wheelRig: [], radius: 0.3 };
       }
 
       root.updateMatrixWorld(true);
@@ -322,34 +322,49 @@
       }));
 
       const sorted = wheels.sort((a, b) => b.position.z - a.position.z);
-      const front = sorted.slice(0, 2);
+      const front = new Set(sorted.slice(0, 2).map(({ mesh }) => mesh));
 
-      const steeringPivots = front.map(({ mesh }) => {
+      const wheelRig = sorted.map(({ mesh }) => {
+        const isFront = front.has(mesh);
         const parent = mesh.parent || mesh;
         const parentName = (parent.name || "").toLowerCase();
-        if (parent !== root && (parentName.includes("pivot") || parentName.includes("steer"))) {
-          return parent;
-        }
-        return mesh;
+        const pivot = isFront && parent !== root && (parentName.includes("pivot") || parentName.includes("steer"))
+          ? parent
+          : mesh;
+        return {
+          mesh,
+          pivot,
+          steerable: isFront,
+          baseQuaternion: mesh.quaternion.clone(),
+          pivotBaseQuaternion: pivot.quaternion.clone(),
+          angle: 0,
+        };
       });
-
-      const wheelGroups = wheels.map(({ mesh }) => mesh);
 
       const radius = (() => {
         const box = new THREE.Box3().setFromObject(wheels[0].mesh);
         return Math.max(0.15, (box.max.y - box.min.y) / 2);
       })();
 
-      return { wheels: wheelGroups, steeringPivots, radius };
+      return { wheelRig, radius };
     }
 
     function collectBodyMaterials(root) {
+      const blacklist = ["light", "lamp", "glass", "window", "plate", "license", "tyre", "tire", "wheel", "brake"];
       const candidates = findMaterials(root, (name) =>
-        name.includes("body") || name.includes("paint") || name.includes("car")
+        (name.includes("body") || name.includes("paint") || name.includes("car")) &&
+        !blacklist.some((bad) => name.includes(bad))
       );
       if (candidates.length === 0) {
         root.traverse((child) => {
-          if (child.isMesh && child.material && !Array.isArray(child.material) && child.material.color) {
+          if (
+            child.isMesh &&
+            child.material &&
+            !Array.isArray(child.material) &&
+            child.material.color &&
+            !blacklist.some((bad) => (child.name || "").toLowerCase().includes(bad)) &&
+            !blacklist.some((bad) => (child.material.name || "").toLowerCase().includes(bad))
+          ) {
             candidates.push(child.material);
           }
         });
@@ -359,16 +374,70 @@
     }
 
     function collectLightMaterials(root) {
-      const headlights = findMaterials(root, (name) =>
-        name.includes("head") || name.includes("front") || name.includes("lamp") || name.includes("light")
+      const headlights = new Set(
+        findMaterials(root, (name) =>
+          name.includes("head") || name.includes("front") || name.includes("lamp") || name.includes("light")
+        )
       );
-      const tailLights = findMaterials(root, (name) =>
-        name.includes("tail") || name.includes("rear") || name.includes("back") || name.includes("brake") || name.includes("light")
+      const tailLights = new Set(
+        findMaterials(root, (name) =>
+          name.includes("tail") || name.includes("rear") || name.includes("back") || name.includes("brake") || name.includes("light")
+        )
       );
-      if (headlights.length === 0 || tailLights.length === 0) {
+
+      const ensureColorMatches = (mat, predicate, bucket) => {
+        const c = mat.emissive || mat.color;
+        if (!c) return;
+        if (predicate(c)) bucket.add(mat);
+      };
+
+      root.traverse((child) => {
+        if (!child.isMesh || !child.material) return;
+        const mats = Array.isArray(child.material) ? child.material : [child.material];
+        mats.forEach((mat) => {
+          ensureColorMatches(
+            mat,
+            (c) => c.r > 0.65 && c.g > 0.2 && c.b < 0.2 && c.r > c.g,
+            headlights
+          );
+          ensureColorMatches(
+            mat,
+            (c) => c.r > 0.55 && c.g < 0.25 && c.b < 0.25 && c.r > c.g * 1.6,
+            tailLights
+          );
+        });
+      });
+
+      if (headlights.size === 0 || tailLights.size === 0) {
         logCarStructure(root);
       }
-      return { headlights, tailLights };
+      return { headlights: Array.from(headlights), tailLights: Array.from(tailLights) };
+    }
+
+    const wheelRollAxis = new THREE.Vector3(1, 0, 0);
+    const wheelSteerAxis = new THREE.Vector3(0, 1, 0);
+    const tempRollQuat = new THREE.Quaternion();
+    const tempSteerQuat = new THREE.Quaternion();
+
+    function applyWheelPose(car, steerAngle, rollDelta) {
+      const rig = car.userData.wheelRig;
+      if (!rig) return;
+      tempSteerQuat.setFromAxisAngle(wheelSteerAxis, steerAngle || 0);
+      const delta = typeof rollDelta === "number" ? rollDelta : 0;
+      rig.forEach((wheel) => {
+        wheel.angle += delta;
+        tempRollQuat.setFromAxisAngle(wheelRollAxis, wheel.angle);
+        if (wheel.steerable) {
+          if (wheel.pivot && wheel.pivot !== wheel.mesh) {
+            wheel.pivot.quaternion.copy(wheel.pivotBaseQuaternion).multiply(tempSteerQuat);
+            wheel.mesh.quaternion.copy(wheel.baseQuaternion).multiply(tempRollQuat);
+          } else {
+            wheel.mesh.quaternion.copy(wheel.baseQuaternion).multiply(tempSteerQuat).multiply(tempRollQuat);
+          }
+        } else {
+          wheel.mesh.quaternion.copy(wheel.baseQuaternion).multiply(tempRollQuat);
+        }
+      });
     }
 
     async function makeCar() {
@@ -376,7 +445,7 @@
       const car = cloneSkeleton(baseScene);
       cloneMaterials(car);
 
-      const { wheels, steeringPivots, radius } = categorizeWheels(car);
+      const { wheelRig, radius } = categorizeWheels(car);
       const { headlights, tailLights } = collectLightMaterials(car);
       const bodyMaterials = collectBodyMaterials(car);
 
@@ -387,20 +456,7 @@
         typeof m.emissiveIntensity === "number" ? m.emissiveIntensity : 0.8
       );
 
-      const steeringRig = steeringPivots.map((pivot) => ({
-        pivot,
-        baseQuaternion: pivot.quaternion.clone(),
-      }));
-      const wheelRig = wheels.map((wheel) => ({
-        mesh: wheel,
-        baseQuaternion: wheel.quaternion.clone(),
-        angle: 0,
-      }));
-
-      car.userData.wheelGroups = wheels;
-      car.userData.steeringPivots = steeringPivots;
       car.userData.wheelRig = wheelRig;
-      car.userData.steeringRig = steeringRig;
       car.userData.wheelRadius = radius;
       car.userData.lightsOn = true;
       car.userData.brakeActive = false;
@@ -440,24 +496,46 @@
     async function setupPlayerCar() {
       car = await makeCar();
       scene.add(car);
+      ensureLocalColor();
     }
 
 
     // --- Multiplayer (online/offline aware) ---
     const remotePlayers = new Map();
 
-    function hashHue(id) {
+    const PLAYER_COLORS = [
+      "#ff6b35", // orange
+      "#ffd166", // yellow
+      "#06d6a0", // green
+      "#5e60ce", // purple
+      "#f72585", // magenta
+      "#2ec4b6", // teal
+      "#f4a261", // tan/orange
+      "#a0d911", // lime
+    ];
+
+    function colorIndexFromId(id) {
+      const text = id || "local";
       let hash = 0;
-      for (let i = 0; i < id.length; i++) {
-        hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
+      for (let i = 0; i < text.length; i++) {
+        hash = (hash * 31 + text.charCodeAt(i)) >>> 0;
       }
-      return (hash % 360) / 360;
+      return hash % PLAYER_COLORS.length;
     }
 
-    function colorizeCar(mesh, hue) {
-      const color = new THREE.Color();
-      color.setHSL(hue, 0.72, 0.52);
+    function colorizeCar(mesh, idForColor) {
+      const hex = PLAYER_COLORS[colorIndexFromId(idForColor)];
+      const color = new THREE.Color(hex);
+      mesh.userData.playerColor = hex;
       mesh.userData.setPlayerColor?.(color);
+    }
+
+    function ensureLocalColor() {
+      if (!car) return;
+      const colorId = NETWORK.id || "local";
+      if (car.userData.assignedColorId === colorId) return;
+      colorizeCar(car, colorId);
+      car.userData.assignedColorId = colorId;
     }
 
     async function spawnRemotePlayer(id, snapshot) {
@@ -465,7 +543,7 @@
       const placeholder = { mesh: null, target: null, loading: true };
       remotePlayers.set(id, placeholder);
       const ghost = await makeCar();
-      colorizeCar(ghost, hashHue(id));
+      colorizeCar(ghost, id);
       ghost.userData.isRemote = true;
       ghost.userData.applyLights?.(false);
       scene.add(ghost);
@@ -511,18 +589,7 @@
         player.mesh.rotation.y = currentYaw + deltaYaw * follow;
 
         const rollDelta = (player.target.speed / (player.mesh.userData.wheelRadius || 1)) * dt;
-        const rollAxis = new THREE.Vector3(1, 0, 0);
-        const rollQuat = new THREE.Quaternion();
-        player.mesh.userData.wheelRig?.forEach((wheel) => {
-          wheel.angle += rollDelta;
-          rollQuat.setFromAxisAngle(rollAxis, wheel.angle);
-          wheel.mesh.quaternion.copy(wheel.baseQuaternion).multiply(rollQuat);
-        });
-
-        const steerQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), player.target.steer || 0);
-        player.mesh.userData.steeringRig?.forEach(({ pivot, baseQuaternion }) => {
-          pivot.quaternion.copy(steerQuat).multiply(baseQuaternion);
-        });
+        applyWheelPose(player.mesh, player.target.steer || 0, rollDelta);
         player.mesh.userData.brakeActive = Boolean(player.target.brake);
         player.mesh.userData.applyLights?.(player.mesh.userData.brakeActive);
       }
@@ -597,6 +664,7 @@
       if (data.type === "hello") {
         NETWORK.id = data.id;
         setNetStatus(`Online: ${resolveServerHost()}`, true);
+        ensureLocalColor();
         if (Array.isArray(data.players)) {
           data.players.forEach((p) => {
             if (!remotePlayers.has(p.id)) spawnRemotePlayer(p.id, p.state).catch((err) => console.warn("Remote spawn failed", err));
@@ -815,10 +883,6 @@
 
       const visualSteer = -clamp(ax, -1, 1) * (Math.PI / 7);
       state.steer = visualSteer;
-      const steerQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), visualSteer);
-      car.userData.steeringRig?.forEach(({ pivot, baseQuaternion }) => {
-        pivot.quaternion.copy(steerQuat).multiply(baseQuaternion);
-      });
 
       car.rotation.y = state.yaw;
 
@@ -827,13 +891,7 @@
       car.position.addScaledVector(forward, state.speed * dt);
 
       const rollDelta = (state.speed / (car.userData.wheelRadius || 1)) * dt;
-      const rollAxis = new THREE.Vector3(1, 0, 0);
-      const rollQuat = new THREE.Quaternion();
-      car.userData.wheelRig?.forEach((wheel) => {
-        wheel.angle += rollDelta;
-        rollQuat.setFromAxisAngle(rollAxis, wheel.angle);
-        wheel.mesh.quaternion.copy(wheel.baseQuaternion).multiply(rollQuat);
-      });
+      applyWheelPose(car, visualSteer, rollDelta);
 
       // Clamp to bounds (soft wall)
       car.position.x = clamp(car.position.x, -bounds, bounds);
