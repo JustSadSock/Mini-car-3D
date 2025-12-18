@@ -226,7 +226,7 @@
       const headlightMat = new THREE.MeshStandardMaterial({
         color: 0xd9e2ff,
         emissive: 0xf4f7ff,
-        emissiveIntensity: 0.55,
+        emissiveIntensity: 0.8,
         roughness: 0.24,
         metalness: 0.12,
         normalMap: microNormal,
@@ -272,7 +272,7 @@
       function makeHeadlight(x) {
         const lens = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.12, 0.06), headlightMat.clone());
         lens.position.set(x, 0.48, 1.22);
-        const light = new THREE.SpotLight(0xffffff, 2.1, 30, Math.PI / 6.5, 0.38, 1.05);
+        const light = new THREE.SpotLight(0xffffff, 2.65, 30, Math.PI / 6.5, 0.36, 1.05);
         light.position.set(x * 0.92, 0.54, 1.08);
         light.target.position.set(x * 0.6, 0.28, 6.2);
         car.add(light.target);
@@ -359,8 +359,10 @@
       function makeTailLight(x) {
         const lens = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.12, 0.04), tailLightMat.clone());
         lens.position.set(x, 0.5, -1.22);
-        const light = new THREE.PointLight(0xff2738, 0.18, 6.5, 2.2);
-        light.position.set(x, 0.54, -1.08);
+        const light = new THREE.SpotLight(0xff2738, 0.32, 8.5, Math.PI / 7, 0.65, 2.1);
+        light.position.set(x, 0.55, -1.1);
+        light.target.position.set(x * 0.85, 0.42, -6.2);
+        car.add(light.target);
         car.add(light);
         car.add(lens);
         brakeLights.push({ light, lens });
@@ -562,8 +564,8 @@
         const reversing = state.speed < -0.15;
         const active = braking || reversing;
         car.userData.tailLights.forEach(({ light, lens }) => {
-          light.intensity = active ? 1.8 : 0.12;
-          lens.material.emissiveIntensity = active ? 1.8 : 0.38;
+          light.intensity = active ? 1.85 : 0.15;
+          lens.material.emissiveIntensity = active ? 1.8 : 0.42;
         });
       }
 
