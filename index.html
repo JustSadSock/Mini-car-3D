@@ -330,7 +330,7 @@
       function makeHeadlight(x) {
         const lens = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.12, 0.06), headlightMat.clone());
         lens.position.set(x, 0.48, 1.22);
-        const light = new THREE.SpotLight(0xffffff, 2.65, 30, Math.PI / 6.5, 0.36, 1.05);
+        const light = new THREE.SpotLight(0xffffff, 2.65, 30, Math.PI / 5, 0.36, 1.05);
         light.position.set(x * 0.92, 0.54, 1.08);
         light.target.position.set(x * 0.6, 0.28, 6.2);
         car.add(light.target);
