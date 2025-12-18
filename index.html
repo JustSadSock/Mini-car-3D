@@ -331,9 +331,16 @@
       const lateral = size.x * 0.22;
       const targetDistance = box.max.z + size.z * 0.45;
 
-      const target = new THREE.Object3D();
-      target.position.set(center.x, headlightHeight * 0.98, targetDistance);
-      car.add(target);
+      const targetRoot = new THREE.Object3D();
+      const makeTarget = (x) => {
+        const t = new THREE.Object3D();
+        t.position.set(x, headlightHeight * 0.98, targetDistance);
+        targetRoot.add(t);
+        return t;
+      };
+      const leftTarget = makeTarget(center.x - lateral);
+      const rightTarget = makeTarget(center.x + lateral);
+      car.add(targetRoot);
 
       const createLight = () => {
         const light = new THREE.SpotLight(0xffffff);
@@ -346,7 +353,6 @@
         light.castShadow = false;
         light.shadow.mapSize.set(512, 512);
         light.shadow.bias = -0.00018;
-        light.target = target;
         light.visible = true;
         return light;
       };
@@ -354,11 +360,13 @@
       const left = createLight();
       left.position.set(center.x - lateral, headlightHeight, forward);
       left.castShadow = true;
+      left.target = leftTarget;
       car.add(left);
 
       const right = createLight();
       right.position.set(center.x + lateral, headlightHeight, forward);
       right.castShadow = false;
+      right.target = rightTarget;
       car.add(right);
 
       const beams = [];
@@ -374,7 +382,10 @@
         alphaMap: beamAlpha,
       });
 
-      [left, right].forEach((light) => {
+      [
+        { light: left, target: leftTarget },
+        { light: right, target: rightTarget },
+      ].forEach(({ light, target }) => {
         const length = beamLength(light);
         const radius = Math.tan(light.angle) * length;
         const geo = new THREE.ConeGeometry(radius, length, 12, 1, true);
@@ -383,12 +394,13 @@
         beam.rotation.x = Math.PI / 2;
         beam.position.copy(light.position);
         beam.translateZ(length * 0.5);
+        beam.lookAt(target.position);
         beam.renderOrder = -1;
         car.add(beam);
         beams.push(beam);
       });
 
-      return { left, right, target, beams };
+      return { left, right, target: targetRoot, beams };
     }
 
     function attachRearLights(car, existingTailMaterials = []) {
