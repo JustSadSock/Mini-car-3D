@@ -350,27 +350,39 @@
     }
 
     function collectBodyMaterials(root) {
-      const blacklist = ["light", "lamp", "glass", "window", "plate", "license", "tyre", "tire", "wheel", "brake"];
-      const candidates = findMaterials(root, (name) =>
+      const blacklist = ["light", "lamp", "glass", "window", "wind", "screen", "plate", "license", "tyre", "tire", "wheel", "brake", "head", "tail", "led", "signal", "mirror"];
+      const bluish = (color) => color && color.b > color.g * 0.9 && color.b > color.r * 1.15 && color.b > 0.28;
+      const rawCandidates = findMaterials(root, (name) =>
         (name.includes("body") || name.includes("paint") || name.includes("car")) &&
         !blacklist.some((bad) => name.includes(bad))
       );
-      if (candidates.length === 0) {
-        root.traverse((child) => {
-          if (
-            child.isMesh &&
-            child.material &&
-            !Array.isArray(child.material) &&
-            child.material.color &&
-            !blacklist.some((bad) => (child.name || "").toLowerCase().includes(bad)) &&
-            !blacklist.some((bad) => (child.material.name || "").toLowerCase().includes(bad))
-          ) {
-            candidates.push(child.material);
-          }
-        });
+
+      const filtered = rawCandidates.filter((mat) => {
+        const name = (mat?.name || "").toLowerCase();
+        if (blacklist.some((bad) => name.includes(bad))) return false;
+        return bluish(mat.color);
+      });
+
+      if (filtered.length > 0) return filtered;
+
+      const fallback = [];
+      root.traverse((child) => {
+        if (
+          child.isMesh &&
+          child.material &&
+          !Array.isArray(child.material) &&
+          child.material.color &&
+          !blacklist.some((bad) => (child.name || "").toLowerCase().includes(bad)) &&
+          !blacklist.some((bad) => (child.material.name || "").toLowerCase().includes(bad)) &&
+          bluish(child.material.color)
+        ) {
+          fallback.push(child.material);
+        }
+      });
+      if (fallback.length === 0) {
         logCarStructure(root);
       }
-      return candidates;
+      return fallback;
     }
 
     function collectLightMaterials(root) {
@@ -385,10 +397,25 @@
         )
       );
 
-      const ensureColorMatches = (mat, predicate, bucket) => {
+      const normalizeLightMaterial = (mat, fallbackColor, minIntensity) => {
+        if (!mat) return;
+        const color = new THREE.Color(fallbackColor);
+        if (mat.color && (mat.color.r + mat.color.g + mat.color.b) < 0.05) mat.color.set(color);
+        if (mat.emissive) {
+          mat.emissive.set(color);
+        }
+        if (typeof mat.emissiveIntensity !== "number" || mat.emissiveIntensity < minIntensity) {
+          mat.emissiveIntensity = minIntensity;
+        }
+      };
+
+      const ensureColorMatches = (mat, predicate, bucket, fallbackColor, minIntensity) => {
         const c = mat.emissive || mat.color;
         if (!c) return;
-        if (predicate(c)) bucket.add(mat);
+        if (predicate(c)) {
+          bucket.add(mat);
+          normalizeLightMaterial(mat, fallbackColor, minIntensity);
+        }
       };
 
       root.traverse((child) => {
@@ -398,12 +425,16 @@
           ensureColorMatches(
             mat,
             (c) => c.r > 0.65 && c.g > 0.2 && c.b < 0.2 && c.r > c.g,
-            headlights
+            headlights,
+            0xffffff,
+            1.4
           );
           ensureColorMatches(
             mat,
             (c) => c.r > 0.55 && c.g < 0.25 && c.b < 0.25 && c.r > c.g * 1.6,
-            tailLights
+            tailLights,
+            0xff2b2b,
+            0.8
           );
         });
       });
@@ -411,6 +442,10 @@
       if (headlights.size === 0 || tailLights.size === 0) {
         logCarStructure(root);
       }
+
+      headlights.forEach((mat) => normalizeLightMaterial(mat, 0xffffff, 1.4));
+      tailLights.forEach((mat) => normalizeLightMaterial(mat, 0xff2b2b, 0.8));
+
       return { headlights: Array.from(headlights), tailLights: Array.from(tailLights) };
     }
 
