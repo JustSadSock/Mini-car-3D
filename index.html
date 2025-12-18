@@ -619,7 +619,8 @@
 
       // Turning scales with speed (no rotation while stopped)
       const speedFactor = clamp(Math.abs(state.speed) / MAX_FWD, 0, 1);
-      const steer = state.speed < -0.05 ? -ax : ax;
+      const steerInput = ax;
+      const steer = state.speed < -0.05 ? -steerInput : steerInput;
       const turnRate = -steer * TURN * speedFactor;
       state.yaw += turnRate * dt;
 
@@ -631,7 +632,7 @@
 
       if (car.userData.wheels) {
         const spinDelta = (state.speed * dt) / (car.userData.wheels[0]?.radius || 1);
-        const steerAngle = steer * 0.58 * speedFactor;
+        const steerAngle = -steerInput * 0.58 * speedFactor;
         car.userData.wheels.forEach(({ spin, steering, steerable }) => {
           spin.rotation.x = (spin.rotation.x + spinDelta) % (Math.PI * 2);
           steering.rotation.y = steerable ? steerAngle : 0;
