@@ -6,7 +6,7 @@
         content="width=device-width, height=device-height, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <title>Mini Car 3D (single file)</title>
+  <title>Mini Car 3D</title>
   <style>
     html, body {
       margin: 0;
@@ -306,9 +306,12 @@
       makeHeadlight(-0.35);
       makeHeadlight(0.35);
 
-      const wheelGeo = new THREE.CylinderGeometry(0.22, 0.22, 0.18, 18);
+      const wheelRadius = 0.22;
+      const wheelGeo = new THREE.CylinderGeometry(wheelRadius, wheelRadius, 0.18, 18);
       const hubGeo = new THREE.CylinderGeometry(0.08, 0.08, 0.2, 14);
       const axleGeo = new THREE.CylinderGeometry(0.035, 0.035, 1.35, 10);
+      const wheelGroups = [];
+      const steeringPivots = [];
       function axleAt(z) {
         const axle = new THREE.Mesh(axleGeo, hubMat);
         axle.rotation.z = Math.PI / 2;
@@ -317,20 +320,27 @@
       }
       car.add(axleAt(0.82));
       car.add(axleAt(-0.82));
-      function wheelWithHub(x, z) {
+      function wheelWithHub(x, z, steerable = false) {
+        const pivot = new THREE.Group();
+        pivot.position.set(x, 0.22, z);
+
         const group = new THREE.Group();
+        group.position.y = 0;
+
         const w = new THREE.Mesh(wheelGeo, wheelMat);
         w.rotation.z = Math.PI / 2;
-        w.position.set(x, 0.22, z);
         const hub = new THREE.Mesh(hubGeo, hubMat);
         hub.rotation.z = Math.PI / 2;
-        hub.position.set(x, 0.22, z);
         group.add(w);
         group.add(hub);
-        return group;
+
+        pivot.add(group);
+        wheelGroups.push(group);
+        if (steerable) steeringPivots.push(pivot);
+        return pivot;
       }
-      car.add(wheelWithHub(-0.62, 0.82));
-      car.add(wheelWithHub( 0.62, 0.82));
+      car.add(wheelWithHub(-0.62, 0.82, true));
+      car.add(wheelWithHub( 0.62, 0.82, true));
       car.add(wheelWithHub(-0.62,-0.82));
       car.add(wheelWithHub( 0.62,-0.82));
 
@@ -442,6 +452,9 @@
       car.add(nose);
 
       car.userData.tailLights = brakeLights;
+      car.userData.wheelGroups = wheelGroups;
+      car.userData.steeringPivots = steeringPivots;
+      car.userData.wheelRadius = wheelRadius;
 
       car.position.set(0, 0, 0);
       return car;
@@ -616,11 +629,21 @@
       const turnRate = -steer * TURN * speedFactor;
       state.yaw += turnRate * dt;
 
+      const visualSteer = clamp(steer, -1, 1) * (Math.PI / 7);
+      car.userData.steeringPivots?.forEach((pivot) => {
+        pivot.rotation.y = visualSteer;
+      });
+
       car.rotation.y = state.yaw;
 
       // Move forward in car's local +Z
       const forward = new THREE.Vector3(0, 0, 1).applyEuler(car.rotation);
       car.position.addScaledVector(forward, state.speed * dt);
+
+      const rollDelta = (state.speed / (car.userData.wheelRadius || 1)) * dt;
+      car.userData.wheelGroups?.forEach((group) => {
+        group.rotation.x -= rollDelta;
+      });
 
       // Clamp to bounds (soft wall)
       car.position.x = clamp(car.position.x, -bounds, bounds);
