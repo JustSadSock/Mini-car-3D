@@ -43,6 +43,22 @@
       font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
       color: rgba(255,255,255,0.9);
     }
+    #netStatus {
+      position: absolute;
+      top: calc(env(safe-area-inset-top, 0px) + 12px);
+      left: calc(env(safe-area-inset-left, 0px) + 12px);
+      padding: 8px 12px;
+      border-radius: 12px;
+      background: rgba(8, 12, 18, 0.65);
+      border: 1px solid rgba(255,255,255,0.08);
+      box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+      font-size: 12px;
+      letter-spacing: 0.02em;
+      pointer-events: none;
+      backdrop-filter: blur(10px);
+    }
+    #netStatus.net-online { color: #a5ffb1; }
+    #netStatus.net-offline { color: #ff9f9f; }
     /* One joystick = minimum buttons */
     #joy {
       position: absolute;
@@ -88,6 +104,7 @@
   <div id="wrap"></div>
 
   <div id="hud">
+    <div id="netStatus" class="net-offline">Offline режим</div>
     <div id="joy" aria-label="joystick">
       <div id="joyBase"></div>
       <div id="joyNub"></div>
@@ -106,6 +123,24 @@
     });
 
     const wrap = document.getElementById("wrap");
+    const hud = document.getElementById("hud");
+    const netStatusEl = document.getElementById("netStatus");
+
+    const NETWORK = {
+      defaultHost: "irgri.uk",
+      localHost: "localhost:3000",
+      mode: "offline",
+      socket: null,
+      id: null,
+      reconnectTimer: null,
+      lastSend: 0
+    };
+
+    function setNetStatus(text, online = false) {
+      netStatusEl.textContent = text;
+      netStatusEl.classList.toggle("net-online", online);
+      netStatusEl.classList.toggle("net-offline", !online);
+    }
 
     // --- Renderer ---
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
@@ -463,6 +498,194 @@
     const car = makeCar();
     scene.add(car);
 
+    // --- Multiplayer (online/offline aware) ---
+    const remotePlayers = new Map();
+
+    function hashHue(id) {
+      let hash = 0;
+      for (let i = 0; i < id.length; i++) {
+        hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
+      }
+      return (hash % 360) / 360;
+    }
+
+    function colorizeCar(mesh, hue) {
+      mesh.traverse((child) => {
+        if (!child.isMesh || !child.material) return;
+        const mat = child.material.clone();
+        if (mat.color) {
+          const hsl = {};
+          mat.color.getHSL(hsl);
+          mat.color.setHSL(hue, Math.min(0.8, hsl.s + 0.25), hsl.l);
+        }
+        if (mat.emissive) mat.emissive = mat.emissive.clone();
+        child.material = mat;
+      });
+    }
+
+    function spawnRemotePlayer(id, snapshot) {
+      const ghost = makeCar();
+      colorizeCar(ghost, hashHue(id));
+      ghost.userData.isRemote = true;
+      ghost.userData.tailLights?.forEach(({ light }) => { light.intensity = 0.8; });
+      scene.add(ghost);
+      remotePlayers.set(id, { mesh: ghost, target: null });
+      applyRemoteState(id, snapshot || { p: [0, 0, 0], y: 0, s: 0 });
+    }
+
+    function removeRemotePlayer(id) {
+      const player = remotePlayers.get(id);
+      if (!player) return;
+      scene.remove(player.mesh);
+      player.mesh.traverse((child) => {
+        if (child.geometry) child.geometry.dispose?.();
+        if (child.material) child.material.dispose?.();
+      });
+      remotePlayers.delete(id);
+    }
+
+    function applyRemoteState(id, state) {
+      const player = remotePlayers.get(id);
+      if (!player) return;
+      const target = {
+        position: new THREE.Vector3(state.p?.[0] || 0, state.p?.[1] || 0, state.p?.[2] || 0),
+        yaw: state.y || 0,
+        speed: state.s || 0,
+        received: performance.now()
+      };
+      player.target = target;
+    }
+
+    function updateRemotePlayers(dt) {
+      const follow = 1 - Math.pow(0.0015, dt);
+      for (const player of remotePlayers.values()) {
+        if (!player.target) continue;
+        player.mesh.position.lerp(player.target.position, follow);
+        const currentYaw = player.mesh.rotation.y;
+        const deltaYaw = ((player.target.yaw - currentYaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+        player.mesh.rotation.y = currentYaw + deltaYaw * follow;
+        const rollDelta = (player.target.speed / (player.mesh.userData.wheelRadius || 1)) * dt;
+        player.mesh.userData.wheelGroups?.forEach((group) => {
+          group.rotation.x -= rollDelta;
+        });
+      }
+    }
+
+    function resolveServerHost() {
+      const host = location.hostname;
+      if (host === "localhost" || host === "127.0.0.1") return NETWORK.localHost;
+      if (!host || host === "") return NETWORK.defaultHost;
+      return NETWORK.defaultHost;
+    }
+
+    async function checkServerAvailability(host, timeoutMs = 1800) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      const protocol = host.includes("localhost") || host.includes("127.0.0.1") ? "http" : "https";
+      try {
+        const res = await fetch(`${protocol}://${host}/ping`, {
+          signal: controller.signal,
+          cache: "no-store"
+        });
+        return res.ok;
+      } catch (err) {
+        return false;
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    function cleanSocket() {
+      if (NETWORK.socket) {
+        NETWORK.socket.close();
+        NETWORK.socket = null;
+      }
+    }
+
+    function scheduleReconnect() {
+      if (NETWORK.reconnectTimer) return;
+      NETWORK.reconnectTimer = setTimeout(() => {
+        NETWORK.reconnectTimer = null;
+        initNetwork();
+      }, 2500);
+    }
+
+    function sendStateSnapshot() {
+      if (!NETWORK.socket || NETWORK.socket.readyState !== WebSocket.OPEN) return;
+      const now = performance.now();
+      if (now - NETWORK.lastSend < 50) return; // ~20 Hz
+      NETWORK.lastSend = now;
+      const payload = {
+        type: "state",
+        state: {
+          p: [Number(car.position.x.toFixed(3)), Number(car.position.y.toFixed(3)), Number(car.position.z.toFixed(3))],
+          y: Number(state.yaw.toFixed(4)),
+          s: Number(state.speed.toFixed(3))
+        }
+      };
+      NETWORK.socket.send(JSON.stringify(payload));
+    }
+
+    function handleMessage(evt) {
+      let data;
+      try {
+        data = JSON.parse(evt.data);
+      } catch (err) {
+        return;
+      }
+
+      if (data.type === "hello") {
+        NETWORK.id = data.id;
+        setNetStatus(`Online: ${resolveServerHost()}`, true);
+        if (Array.isArray(data.players)) {
+          data.players.forEach((p) => {
+            if (!remotePlayers.has(p.id)) spawnRemotePlayer(p.id, p.state);
+            else applyRemoteState(p.id, p.state);
+          });
+        }
+        sendStateSnapshot();
+      } else if (data.type === "state" && data.id && data.id !== NETWORK.id) {
+        if (!remotePlayers.has(data.id)) spawnRemotePlayer(data.id, data.state);
+        else applyRemoteState(data.id, data.state);
+      } else if (data.type === "player-left" && data.id) {
+        removeRemotePlayer(data.id);
+      } else if (data.type === "player-joined" && data.id && data.id !== NETWORK.id) {
+        if (!remotePlayers.has(data.id)) spawnRemotePlayer(data.id, { p: [0, 0, 0], y: 0, s: 0 });
+      }
+    }
+
+    async function initNetwork() {
+      cleanSocket();
+      const host = resolveServerHost();
+      const available = await checkServerAvailability(host);
+      if (!available) {
+        NETWORK.mode = "offline";
+        setNetStatus("Offline режим (сервер недоступен)", false);
+        scheduleReconnect();
+        return;
+      }
+
+      const protocol = host.includes("localhost") || host.includes("127.0.0.1") ? "ws" : "wss";
+      const ws = new WebSocket(`${protocol}://${host}/ws`);
+      ws.addEventListener("open", () => {
+        NETWORK.socket = ws;
+        NETWORK.mode = "online";
+        NETWORK.lastSend = 0;
+        setNetStatus(`Online: ${host}`, true);
+        sendStateSnapshot();
+      });
+      ws.addEventListener("message", handleMessage);
+      ws.addEventListener("close", () => {
+        NETWORK.mode = "offline";
+        setNetStatus("Offline режим (нет соединения)", false);
+        NETWORK.socket = null;
+        scheduleReconnect();
+      });
+      ws.addEventListener("error", () => {
+        setNetStatus("Offline режим (ошибка связи)", false);
+      });
+    }
+
     // --- Input: single joystick + keyboard fallback ---
     const joy = document.getElementById("joy");
     const nub = document.getElementById("joyNub");
@@ -666,6 +889,12 @@
       rollQuat.setFromAxisAngle(zAxis, camRoll);
       camera.quaternion.multiply(rollQuat);
 
+      updateRemotePlayers(dt);
+
+      if (NETWORK.mode === "online") {
+        sendStateSnapshot();
+      }
+
       if (car.userData.tailLights) {
         const braking = state.speed > 0.2 && targetSpeed < state.speed - 0.12;
         const reversing = state.speed < -0.15;
@@ -683,6 +912,7 @@
       renderer.render(scene, camera);
       requestAnimationFrame(tick);
     }
+    initNetwork();
     requestAnimationFrame(tick);
 
     // Resize

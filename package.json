@@ -1,0 +1,12 @@
+{
+  "name": "mini-car-3d",
+  "version": "1.0.0",
+  "description": "Mini Car 3D local + online multiplayer server",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.17.1"
+  }
+}

@@ -1,0 +1,12 @@
+tunnel: irgri-tunnel
+credentials-file: C:\Users\SadSock\.cloudflared\dc4ed8c1-690f-449a-b5a9-085c1476fb57.json
+
+ingress:
+  - hostname: irgri.uk
+    service: http://localhost:3000
+  - hostname: www.irgri.uk
+    service: http://localhost:3000
+  - service: http_status:404
+
+metrics: 127.0.0.1:56565
+protocol: http2
