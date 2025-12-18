@@ -4,7 +4,8 @@
   <meta charset="utf-8" />
   <meta name="viewport"
         content="width=device-width, height=device-height, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>Mini Car 3D</title>
   <style>
     html, body {
@@ -110,19 +111,8 @@
     </div>
   </div>
 
-  <script type="importmap">
-    {
-      "imports": {
-        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-        "three/examples/jsm/": "https://unpkg.com/three@0.160.0/examples/jsm/"
-      }
-    }
-  </script>
-
   <script type="module">
-    import * as THREE from "three";
-    import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-    import { clone as cloneSkeleton } from "three/examples/jsm/utils/SkeletonUtils.js";
+    import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
 
     // --- Hard stop for iOS pinch / double-tap zoom antics ---
     document.addEventListener("gesturestart", (e) => e.preventDefault(), { passive: false });
@@ -157,11 +147,8 @@
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setClearColor(0x0b0f16, 1);
-    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.outputEncoding = THREE.sRGBEncoding;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.24;
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     wrap.appendChild(renderer.domElement);
 
     // --- Scene / Camera ---
@@ -193,7 +180,6 @@
     const ground = new THREE.Mesh(groundGeo, groundMat);
     ground.rotation.x = -Math.PI / 2;
     ground.position.y = 0;
-    ground.receiveShadow = true;
     scene.add(ground);
 
     const grid = new THREE.GridHelper(220, 44, 0x3a4454, 0x2a3342);
@@ -245,672 +231,316 @@
       return tex;
     }
 
-    function makeHeadlightCookieTexture(size = 256) {
-      const canvas = document.createElement("canvas");
-      canvas.width = canvas.height = size;
-      const ctx = canvas.getContext("2d");
+    // --- Car (simple geometry, no drama) ---
+    function makeCar() {
+      const car = new THREE.Group();
 
-      ctx.fillStyle = "black";
-      ctx.fillRect(0, 0, size, size);
+      const microNormal = makeNoiseNormalTexture();
 
-      const cx = size * 0.5;
-      const cy = size * 0.64;
-      const radius = size * 0.5;
-      ctx.save();
-      ctx.translate(cx, cy);
-      ctx.scale(1.48, 0.26);
-      const glow = ctx.createRadialGradient(0, 0, radius * 0.08, 0, 0, radius);
-      glow.addColorStop(0.0, "rgba(255,255,255,1.0)");
-      glow.addColorStop(0.22, "rgba(255,255,255,0.72)");
-      glow.addColorStop(0.52, "rgba(255,255,255,0.14)");
-      glow.addColorStop(1.0, "rgba(255,255,255,0.0)");
-      ctx.fillStyle = glow;
-      ctx.beginPath();
-      ctx.arc(0, 0, radius, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
+      function makeNumberTexture(num = 7) {
+        const canvas = document.createElement('canvas');
+        canvas.width = canvas.height = 128;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = 'rgba(255,255,255,0)';
+        ctx.fillRect(0, 0, 128, 128);
+        ctx.fillStyle = '#f12c4b';
+        ctx.strokeStyle = '#0f1624';
+        ctx.lineWidth = 6;
+        ctx.font = 'bold 92px Inter, system-ui';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(String(num), 64, 72);
+        ctx.strokeText(String(num), 64, 72);
+        const tex = new THREE.CanvasTexture(canvas);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.anisotropy = 4;
+        return tex;
+      }
 
-      ctx.globalCompositeOperation = "destination-out";
-      const sliceHeight = size * 0.46;
-      ctx.fillStyle = "rgba(0,0,0,1)";
-      ctx.fillRect(0, 0, size, sliceHeight);
-      const softenHeight = size * 0.08;
-      const cut = ctx.createLinearGradient(0, sliceHeight, 0, sliceHeight + softenHeight);
-      cut.addColorStop(0, "rgba(0,0,0,1)");
-      cut.addColorStop(1, "rgba(0,0,0,0)");
-      ctx.fillStyle = cut;
-      ctx.fillRect(0, sliceHeight, size, softenHeight);
-      ctx.globalCompositeOperation = "source-over";
-
-      const tex = new THREE.CanvasTexture(canvas);
-      tex.colorSpace = THREE.LinearSRGBColorSpace;
-      tex.minFilter = THREE.LinearFilter;
-      tex.magFilter = THREE.LinearFilter;
-      tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
-      tex.needsUpdate = true;
-      return tex;
-    }
-
-    function makeBeamAlphaMap(size = 128) {
-      const canvas = document.createElement("canvas");
-      canvas.width = size;
-      canvas.height = size * 2;
-      const ctx = canvas.getContext("2d");
-
-      const grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
-      grad.addColorStop(0.0, "rgba(255,255,255,0.18)");
-      grad.addColorStop(0.28, "rgba(255,255,255,0.12)");
-      grad.addColorStop(0.6, "rgba(255,255,255,0.04)");
-      grad.addColorStop(1.0, "rgba(255,255,255,0.0)");
-      ctx.fillStyle = grad;
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-      const tex = new THREE.CanvasTexture(canvas);
-      tex.colorSpace = THREE.LinearSRGBColorSpace;
-      tex.wrapS = THREE.ClampToEdgeWrapping;
-      tex.wrapT = THREE.ClampToEdgeWrapping;
-      tex.minFilter = THREE.LinearFilter;
-      tex.magFilter = THREE.LinearFilter;
-      return tex;
-    }
-
-    function enableCarShadows(car) {
-      car.traverse((child) => {
-        if (!child.isMesh) return;
-        child.castShadow = true;
-        child.receiveShadow = true;
+      const bodyMat = new THREE.MeshStandardMaterial({
+        color: 0xff5e6d,
+        roughness: 0.45,
+        metalness: 0.08,
+        normalMap: microNormal,
+        normalScale: new THREE.Vector2(0.35, 0.35)
       });
-    }
-
-    function attachHeadlights(car) {
-      const cookie = makeHeadlightCookieTexture();
-      const box = new THREE.Box3().setFromObject(car);
-      const size = box.getSize(new THREE.Vector3());
-      const center = box.getCenter(new THREE.Vector3());
-
-      const headlightHeight = box.min.y + size.y * 0.4;
-      const forward = box.max.z - size.z * 0.08;
-      const lateral = size.x * 0.22;
-      const targetDistance = box.max.z + size.z * 0.45;
-
-      const targetRoot = new THREE.Object3D();
-      const makeTarget = (x) => {
-        const t = new THREE.Object3D();
-        t.position.set(x, headlightHeight * 0.98, targetDistance);
-        targetRoot.add(t);
-        return t;
-      };
-      const leftTarget = makeTarget(center.x - lateral);
-      const rightTarget = makeTarget(center.x + lateral);
-      car.add(targetRoot);
-
-        const createLight = () => {
-          const light = new THREE.SpotLight(0xffffff);
-          light.angle = THREE.MathUtils.degToRad(40);
-          light.penumbra = 0.5;
-          light.distance = 48;
-          light.decay = 2;
-        light.power = 1600;
-        light.map = cookie;
-        light.castShadow = false;
-        light.shadow.mapSize.set(512, 512);
-        light.shadow.bias = -0.00018;
-        light.visible = true;
-        return light;
-      };
-
-      const left = createLight();
-      left.position.set(center.x - lateral, headlightHeight, forward);
-      left.castShadow = true;
-      left.target = leftTarget;
-      car.add(left);
-
-      const right = createLight();
-      right.position.set(center.x + lateral, headlightHeight, forward);
-      right.castShadow = false;
-      right.target = rightTarget;
-      car.add(right);
-
-      const beams = [];
-      const beamAlpha = makeBeamAlphaMap();
-      const beamLength = (light) => light.distance * 0.92;
-      const beamMaterial = new THREE.MeshBasicMaterial({
-        color: 0xffffff,
+      const cabinMat = new THREE.MeshStandardMaterial({
+        color: 0x0f1624,
+        roughness: 0.38,
+        metalness: 0.03,
+        normalMap: microNormal,
+        normalScale: new THREE.Vector2(0.25, 0.25)
+      });
+      const wheelMat = new THREE.MeshStandardMaterial({
+        color: 0x1b1b1b,
+        roughness: 0.94,
+        metalness: 0.02
+      });
+      const hubMat = new THREE.MeshStandardMaterial({
+        color: 0xced3de,
+        roughness: 0.32,
+        metalness: 0.55
+      });
+      const headlightMat = new THREE.MeshStandardMaterial({
+        color: 0xd9e2ff,
+        emissive: 0xf4f7ff,
+        emissiveIntensity: 0.8,
+        roughness: 0.24,
+        metalness: 0.12,
+        normalMap: microNormal,
+        normalScale: new THREE.Vector2(0.16, 0.16),
         transparent: true,
-        opacity: 0.06,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
+        opacity: 0.95
+      });
+      const tailLightMat = new THREE.MeshStandardMaterial({
+        color: 0x9f0012,
+        emissive: 0xff2b3a,
+        emissiveIntensity: 0.38,
+        roughness: 0.42,
+        metalness: 0.04,
+        normalMap: microNormal,
+        normalScale: new THREE.Vector2(0.18, 0.18),
+        transparent: true,
+        opacity: 0.95
+      });
+
+      const body = new THREE.Mesh(new THREE.BoxGeometry(1.35, 0.45, 2.4), bodyMat);
+      body.position.y = 0.42;
+      car.add(body);
+
+      const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.05, 0.42, 1.2), cabinMat);
+      cabin.position.set(0, 0.78, -0.1);
+      car.add(cabin);
+
+      const bumperMat = new THREE.MeshStandardMaterial({
+        color: 0xe0e6f0,
+        roughness: 0.82,
+        metalness: 0.24,
+        normalMap: microNormal,
+        normalScale: new THREE.Vector2(0.18, 0.18)
+      });
+      const bumperF = new THREE.Mesh(new THREE.BoxGeometry(1.25, 0.18, 0.22), bumperMat);
+      bumperF.position.set(0, 0.26, 1.18);
+      car.add(bumperF);
+
+      const bumperB = new THREE.Mesh(new THREE.BoxGeometry(1.25, 0.18, 0.22), bumperMat);
+      bumperB.position.set(0, 0.26, -1.18);
+      car.add(bumperB);
+
+      function makeHeadlight(x) {
+        const lens = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.12, 0.06), headlightMat.clone());
+        lens.position.set(x, 0.48, 1.22);
+        const light = new THREE.SpotLight(0xffffff, 2.65, 30, Math.PI / 6.5, 0.36, 1.05);
+        light.position.set(x * 0.92, 0.54, 1.08);
+        light.target.position.set(x * 0.6, 0.28, 6.2);
+        car.add(light.target);
+        car.add(light);
+        car.add(lens);
+      }
+
+      makeHeadlight(-0.35);
+      makeHeadlight(0.35);
+
+      const wheelRadius = 0.22;
+      const wheelGeo = new THREE.CylinderGeometry(wheelRadius, wheelRadius, 0.18, 18);
+      const hubGeo = new THREE.CylinderGeometry(0.08, 0.08, 0.2, 14);
+      const axleGeo = new THREE.CylinderGeometry(0.035, 0.035, 1.35, 10);
+      const wheelGroups = [];
+      const steeringPivots = [];
+      function axleAt(z) {
+        const axle = new THREE.Mesh(axleGeo, hubMat);
+        axle.rotation.z = Math.PI / 2;
+        axle.position.set(0, 0.22, z);
+        return axle;
+      }
+      car.add(axleAt(0.82));
+      car.add(axleAt(-0.82));
+      function wheelWithHub(x, z, steerable = false) {
+        const pivot = new THREE.Group();
+        pivot.position.set(x, 0.22, z);
+
+        const group = new THREE.Group();
+        group.position.y = 0;
+
+        const w = new THREE.Mesh(wheelGeo, wheelMat);
+        w.rotation.z = Math.PI / 2;
+        const hub = new THREE.Mesh(hubGeo, hubMat);
+        hub.rotation.z = Math.PI / 2;
+        group.add(w);
+        group.add(hub);
+
+        pivot.add(group);
+        wheelGroups.push(group);
+        if (steerable) steeringPivots.push(pivot);
+        return pivot;
+      }
+      car.add(wheelWithHub(-0.62, 0.82, true));
+      car.add(wheelWithHub( 0.62, 0.82, true));
+      car.add(wheelWithHub(-0.62,-0.82));
+      car.add(wheelWithHub( 0.62,-0.82));
+
+      const stickerMat = new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        roughness: 0.5,
+        metalness: 0.0,
+        transparent: true,
+        opacity: 0.96,
         side: THREE.DoubleSide,
-        alphaMap: beamAlpha,
+        normalMap: microNormal,
+        normalScale: new THREE.Vector2(0.2, 0.2)
       });
 
-      [
-        { light: left, target: leftTarget },
-        { light: right, target: rightTarget },
-      ].forEach(({ light, target }) => {
-        const length = beamLength(light);
-        const halfHorizontal = THREE.MathUtils.degToRad(20);
-        const halfVertical = THREE.MathUtils.degToRad(5);
-        const radiusX = Math.tan(halfHorizontal) * length;
-        const radiusY = Math.tan(halfVertical) * length;
-        const geo = new THREE.ConeGeometry(1, 1, 16, 1, true);
-        geo.rotateX(Math.PI / 2);
-        const beam = new THREE.Mesh(geo, beamMaterial.clone());
-        beam.userData.baseOpacity = beam.material.opacity;
-        beam.scale.set(radiusX, radiusY, length);
-        beam.position.copy(light.position);
-        beam.translateZ(length * 0.5);
-        beam.lookAt(target.position);
-        beam.renderOrder = -1;
-        car.add(beam);
-        beams.push(beam);
-      });
+      const stripe = new THREE.Mesh(new THREE.PlaneGeometry(0.34, 1.6), stickerMat.clone());
+      stripe.material.color.set(0xffd36b);
+      stripe.rotation.x = -Math.PI / 2;
+      stripe.position.set(-0.35, 0.66, 0.2);
+      car.add(stripe);
 
-      return { left, right, target: targetRoot, beams };
-    }
+      const stripe2 = stripe.clone();
+      stripe2.position.x = 0.35;
+      stripe2.material = stripe.material.clone();
+      stripe2.material.color = new THREE.Color(0xffffff);
+      car.add(stripe2);
 
-    function attachRearLights(car, existingTailMaterials = []) {
-      const box = new THREE.Box3().setFromObject(car);
-      const size = box.getSize(new THREE.Vector3());
-      const center = box.getCenter(new THREE.Vector3());
+      const doorNumGeo = new THREE.PlaneGeometry(0.64, 0.46);
+      const doorNumMat = stickerMat.clone();
+      doorNumMat.color.set(0xffffff);
+      doorNumMat.map = makeNumberTexture(7);
+      doorNumMat.transparent = true;
+      const doorNumL = new THREE.Mesh(doorNumGeo, doorNumMat);
+      doorNumL.position.set(-0.68, 0.58, 0.2);
+      doorNumL.rotation.y = Math.PI / 2;
+      car.add(doorNumL);
 
-      const rearZ = box.min.z + size.z * 0.08;
-      const height = box.min.y + size.y * 0.38;
-      const lateral = size.x * 0.23;
+      const doorNumR = doorNumL.clone();
+      doorNumR.position.x = 0.68;
+      doorNumR.rotation.y = -Math.PI / 2;
+      car.add(doorNumR);
 
-      const tailMat = new THREE.MeshStandardMaterial({
-        color: 0x220000,
-        emissive: new THREE.Color(0x660000),
-        emissiveIntensity: 0.0,
-        roughness: 0.55,
-        metalness: 0.02,
-      });
-      const reverseMat = new THREE.MeshStandardMaterial({
-        color: 0xeeeeee,
-        emissive: new THREE.Color(0xffffff),
-        emissiveIntensity: 0.0,
-        roughness: 0.35,
-        metalness: 0.02,
-      });
+      const badgeMat = stickerMat.clone();
+      badgeMat.color.set(0x4fb7ff);
+      const badge = new THREE.Mesh(new THREE.PlaneGeometry(0.28, 0.18), badgeMat);
+      badge.position.set(0, 0.62, 1.22);
+      car.add(badge);
 
-      const planeGeo = new THREE.PlaneGeometry(size.x * 0.18, size.y * 0.1);
-      const reverseGeo = new THREE.PlaneGeometry(size.x * 0.12, size.y * 0.08);
+      const brakeLights = [];
+      function makeTailLight(x) {
+        const lens = new THREE.Mesh(new THREE.CircleGeometry(0.095, 22), tailLightMat.clone());
+        lens.position.set(x, 0.44, -1.215);
+        lens.rotation.y = Math.PI;
 
-      const makePlane = (geo, mat, xOffset, yOffset, z) => {
-        const mesh = new THREE.Mesh(geo, mat);
-        mesh.position.set(center.x + xOffset, yOffset, z - 0.01);
-        mesh.rotation.y = Math.PI;
-        mesh.castShadow = false;
-        mesh.receiveShadow = false;
-        car.add(mesh);
-        return mesh;
-      };
+        const halo = new THREE.Mesh(
+          new THREE.PlaneGeometry(0.42, 0.42),
+          new THREE.MeshBasicMaterial({
+            map: makeRadialGlowTexture(256, "#ff2738"),
+            transparent: true,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            opacity: 0.8,
+            side: THREE.DoubleSide,
+          })
+        );
+        halo.position.copy(lens.position).add(new THREE.Vector3(0, 0, -0.02));
+        halo.rotation.y = Math.PI;
 
-      const leftMesh = makePlane(planeGeo, tailMat.clone(), -lateral, height, rearZ);
-      const rightMesh = makePlane(planeGeo, tailMat.clone(), lateral, height, rearZ);
-      const reverseLeftMesh = makePlane(reverseGeo, reverseMat.clone(), -lateral * 0.72, height - size.y * 0.02, rearZ + size.z * 0.01);
-      const reverseRightMesh = makePlane(reverseGeo, reverseMat.clone(), lateral * 0.72, height - size.y * 0.02, rearZ + size.z * 0.01);
+        const aura = new THREE.Mesh(
+          new THREE.PlaneGeometry(0.68, 0.68),
+          new THREE.MeshBasicMaterial({
+            map: makeRadialGlowTexture(256, "#ff5a6b"),
+            transparent: true,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            opacity: 0.0,
+            side: THREE.DoubleSide,
+          })
+        );
+        aura.position.copy(lens.position).add(new THREE.Vector3(0, 0, -0.03));
+        aura.rotation.y = Math.PI;
 
-      const brakeLightL = new THREE.PointLight(0xff3a3a, 1, 8, 2);
-      brakeLightL.power = 0;
-      brakeLightL.castShadow = false;
-      brakeLightL.position.set(center.x - lateral * 0.92, height, rearZ - size.z * 0.02);
-      const brakeLightR = brakeLightL.clone();
-      brakeLightR.position.x = center.x + lateral * 0.92;
-
-      const reverseLightL = new THREE.PointLight(0xffffff, 1, 10, 2);
-      reverseLightL.power = 0;
-      reverseLightL.castShadow = false;
-      reverseLightL.position.set(center.x - lateral * 0.7, height - size.y * 0.04, rearZ - size.z * 0.015);
-      const reverseLightR = reverseLightL.clone();
-      reverseLightR.position.x = center.x + lateral * 0.7;
-
-      [brakeLightL, brakeLightR, reverseLightL, reverseLightR].forEach((l) => car.add(l));
-
-      const emissiveMats = new Set([leftMesh.material, rightMesh.material]);
-      const reverseMats = new Set([reverseLeftMesh.material, reverseRightMesh.material]);
-      existingTailMaterials.forEach((mat) => {
-        if (mat?.emissive) {
-          emissiveMats.add(mat);
-        }
-      });
-
-      return {
-        leftMesh,
-        rightMesh,
-        reverseLeftMesh,
-        reverseRightMesh,
-        brakeLightL,
-        brakeLightR,
-        reverseLightL,
-        reverseLightR,
-        brakeFactor: 0,
-        reverseFactor: 0,
-        prevSpeed: 0,
-        emissiveMats: Array.from(emissiveMats),
-        reverseMats: Array.from(reverseMats),
-      };
-    }
-
-    function updateRearLights(car, rear, dt, speed, targetSpeed, throttle = 0) {
-      if (!rear) return;
-      const safeDt = Math.max(dt, 0.001);
-      const accel = (speed - rear.prevSpeed) / safeDt;
-      rear.prevSpeed = speed;
-
-      const isReversing = speed < -0.4 || targetSpeed < -0.6;
-      const isBraking = (speed > 0.6 && accel < -1.2) || (speed > 0.4 && throttle < -0.25);
-
-      const lerpRate = THREE.MathUtils.clamp(dt * 6.5, 0, 1);
-      rear.brakeFactor = THREE.MathUtils.lerp(rear.brakeFactor, isBraking ? 1 : 0, lerpRate);
-      rear.reverseFactor = THREE.MathUtils.lerp(rear.reverseFactor, isReversing ? 1 : 0, lerpRate);
-
-      const lightsOn = car.userData.lightsOn !== false;
-      const dimBase = lightsOn ? 1.05 : 0.0;
-      const brakeBoost = 4.0;
-      const reverseBoost = 3.0;
-
-      const tailIntensity = dimBase + rear.brakeFactor * brakeBoost;
-      const reverseIntensity = rear.reverseFactor * reverseBoost;
-
-      rear.emissiveMats.forEach((mat) => {
-        if (typeof mat.emissiveIntensity === "number") mat.emissiveIntensity = tailIntensity;
-        mat.visible = tailIntensity > 0.01;
-      });
-      rear.reverseMats.forEach((mat) => {
-        if (typeof mat.emissiveIntensity === "number") mat.emissiveIntensity = reverseIntensity;
-        mat.visible = reverseIntensity > 0.01;
-      });
-
-      const brakePower = 90;
-      const reversePower = 130;
-      rear.brakeLightL.power = tailIntensity > 0.01 ? (dimBase * 12 + rear.brakeFactor * brakePower) : 0;
-      rear.brakeLightR.power = rear.brakeLightL.power;
-      rear.reverseLightL.power = reverseIntensity > 0.01 ? reverseIntensity * reversePower : 0;
-      rear.reverseLightR.power = rear.reverseLightL.power;
-    }
-
-    // --- Car (GLB model) ---
-    const gltfLoader = new GLTFLoader();
-    const carModelPromise = loadCarModel();
-
-    let car = null;
-
-    function loadCarModel() {
-      return gltfLoader.loadAsync("models/normalcar1.glb").then((gltf) => gltf.scene);
-    }
-
-    let loggedCarStructure = false;
-    function logCarStructure(root) {
-      if (loggedCarStructure) return;
-      loggedCarStructure = true;
-      const lines = [];
-      root.traverse((child) => {
-        const mats = [];
-        const material = child.material;
-        if (Array.isArray(material)) {
-          material.forEach((m) => m && mats.push(m.name || "(mat)"));
-        } else if (material) {
-          mats.push(material.name || "(mat)");
-        }
-        lines.push(`${child.name || child.type}${mats.length ? ` [${mats.join(", ")}]` : ""}`);
-      });
-      console.groupCollapsed("[CarModel] Scene graph");
-      lines.forEach((l) => console.log(l));
-      console.groupEnd();
-    }
-
-    function cloneMaterials(obj) {
-      obj.traverse((child) => {
-        if (!child.isMesh || !child.material) return;
-        if (Array.isArray(child.material)) {
-          child.material = child.material.map((mat) => mat?.clone?.() || mat);
-        } else {
-          child.material = child.material.clone();
-        }
-      });
-    }
-
-    function findMaterials(root, match) {
-      const result = new Set();
-      root.traverse((child) => {
-        if (!child.isMesh || !child.material) return;
-        const mats = Array.isArray(child.material) ? child.material : [child.material];
-        mats.forEach((mat) => {
-          const name = (mat?.name || child.name || "").toLowerCase();
-          if (match(name)) result.add(mat);
-        });
-      });
-      return Array.from(result);
-    }
-
-    function findWheelCandidates(root) {
-      const wheels = [];
-      root.traverse((child) => {
-        const name = (child.name || "").toLowerCase();
-        if (name.includes("wheel") || name.includes("tyre") || name.includes("tire")) {
-          wheels.push(child);
-        }
-      });
-      return wheels;
-    }
-
-    function categorizeWheels(root) {
-      const wheelNodes = findWheelCandidates(root);
-      if (wheelNodes.length === 0) {
-        logCarStructure(root);
-        return { wheelRig: [], radius: 0.3 };
+        const light = new THREE.SpotLight(0xff2738, 0.32, 8.5, Math.PI / 7.2, 0.52, 1.65);
+        light.position.set(x, 0.46, -1.06);
+        light.target.position.set(x * 0.85, 0.44, -6.4);
+        car.add(light.target);
+        car.add(light);
+        car.add(lens);
+        car.add(halo);
+        car.add(aura);
+        brakeLights.push({ light, lens, halo, aura });
       }
 
-      root.updateMatrixWorld(true);
-      const temp = new THREE.Vector3();
-      const wheels = wheelNodes.map((mesh) => ({
-        mesh,
-        position: mesh.getWorldPosition(temp.clone()),
-      }));
+      makeTailLight(-0.36);
+      makeTailLight(0.36);
 
-      const sorted = wheels.sort((a, b) => b.position.z - a.position.z);
-      const front = new Set(sorted.slice(0, 2).map(({ mesh }) => mesh));
-
-      const wheelRig = sorted.map(({ mesh }) => {
-        const isFront = front.has(mesh);
-        const parent = mesh.parent || mesh;
-        const parentName = (parent.name || "").toLowerCase();
-        const pivot = isFront && parent !== root && (parentName.includes("pivot") || parentName.includes("steer"))
-          ? parent
-          : mesh;
-        return {
-          mesh,
-          pivot,
-          steerable: isFront,
-          baseQuaternion: mesh.quaternion.clone(),
-          pivotBaseQuaternion: pivot.quaternion.clone(),
-          angle: 0,
-        };
-      });
-
-      const radius = (() => {
-        const box = new THREE.Box3().setFromObject(wheels[0].mesh);
-        return Math.max(0.15, (box.max.y - box.min.y) / 2);
-      })();
-
-      return { wheelRig, radius };
-    }
-
-    function collectBodyMaterials(root) {
-      const blacklist = ["light", "lamp", "glass", "window", "wind", "screen", "plate", "license", "tyre", "tire", "wheel", "brake", "head", "tail", "led", "signal", "mirror"];
-      const bluish = (color) => color && color.b > color.g * 0.9 && color.b > color.r * 1.15 && color.b > 0.28;
-      const rawCandidates = findMaterials(root, (name) =>
-        (name.includes("body") || name.includes("paint") || name.includes("car")) &&
-        !blacklist.some((bad) => name.includes(bad))
+      // A tiny "arrow" so you always know forward direction
+      const nose = new THREE.Mesh(
+        new THREE.ConeGeometry(0.18, 0.45, 18),
+        new THREE.MeshStandardMaterial({
+          color: 0xffd36b,
+          roughness: 0.48,
+          metalness: 0.05,
+          normalMap: microNormal,
+          normalScale: new THREE.Vector2(0.22, 0.22)
+        })
       );
+      nose.rotation.x = Math.PI / 2;
+      nose.position.set(0, 0.7, 1.05);
+      car.add(nose);
 
-      const filtered = rawCandidates.filter((mat) => {
-        const name = (mat?.name || "").toLowerCase();
-        if (blacklist.some((bad) => name.includes(bad))) return false;
-        return bluish(mat.color);
-      });
+      car.userData.tailLights = brakeLights;
+      car.userData.wheelGroups = wheelGroups;
+      car.userData.steeringPivots = steeringPivots;
+      car.userData.wheelRadius = wheelRadius;
 
-      if (filtered.length > 0) return filtered;
-
-      const fallback = [];
-      root.traverse((child) => {
-        if (
-          child.isMesh &&
-          child.material &&
-          !Array.isArray(child.material) &&
-          child.material.color &&
-          !blacklist.some((bad) => (child.name || "").toLowerCase().includes(bad)) &&
-          !blacklist.some((bad) => (child.material.name || "").toLowerCase().includes(bad)) &&
-          bluish(child.material.color)
-        ) {
-          fallback.push(child.material);
-        }
-      });
-      if (fallback.length === 0) {
-        logCarStructure(root);
-      }
-      return fallback;
-    }
-
-    function collectLightMaterials(root) {
-      const headlights = new Set(
-        findMaterials(root, (name) =>
-          name.includes("head") || name.includes("front") || name.includes("lamp") || name.includes("light")
-        )
-      );
-      const tailLights = new Set(
-        findMaterials(root, (name) =>
-          name.includes("tail") || name.includes("rear") || name.includes("back") || name.includes("brake") || name.includes("light")
-        )
-      );
-
-      const normalizeLightMaterial = (mat, fallbackColor, minIntensity) => {
-        if (!mat) return;
-        const color = new THREE.Color(fallbackColor);
-        if (mat.color && (mat.color.r + mat.color.g + mat.color.b) < 0.05) mat.color.set(color);
-        if (mat.emissive) {
-          mat.emissive.set(color);
-        }
-        if (typeof mat.emissiveIntensity !== "number" || mat.emissiveIntensity < minIntensity) {
-          mat.emissiveIntensity = minIntensity;
-        }
-      };
-
-      const ensureColorMatches = (mat, predicate, bucket, fallbackColor, minIntensity) => {
-        const c = mat.emissive || mat.color;
-        if (!c) return;
-        if (predicate(c)) {
-          bucket.add(mat);
-          normalizeLightMaterial(mat, fallbackColor, minIntensity);
-        }
-      };
-
-      root.traverse((child) => {
-        if (!child.isMesh || !child.material) return;
-        const mats = Array.isArray(child.material) ? child.material : [child.material];
-        mats.forEach((mat) => {
-          ensureColorMatches(
-            mat,
-            (c) => c.r > 0.65 && c.g > 0.2 && c.b < 0.2 && c.r > c.g,
-            headlights,
-            0xffffff,
-            1.4
-          );
-          ensureColorMatches(
-            mat,
-            (c) => c.r > 0.55 && c.g < 0.25 && c.b < 0.25 && c.r > c.g * 1.6,
-            tailLights,
-            0xff2b2b,
-            0.8
-          );
-        });
-      });
-
-      if (headlights.size === 0 || tailLights.size === 0) {
-        logCarStructure(root);
-      }
-
-      headlights.forEach((mat) => normalizeLightMaterial(mat, 0xffffff, 1.4));
-      tailLights.forEach((mat) => normalizeLightMaterial(mat, 0xff2b2b, 0.8));
-
-      return { headlights: Array.from(headlights), tailLights: Array.from(tailLights) };
-    }
-
-    const wheelRollAxis = new THREE.Vector3(1, 0, 0);
-    const wheelSteerAxis = new THREE.Vector3(0, 1, 0);
-    const tempRollQuat = new THREE.Quaternion();
-    const tempSteerQuat = new THREE.Quaternion();
-
-    function applyWheelPose(car, steerAngle, rollDelta) {
-      const rig = car.userData.wheelRig;
-      if (!rig) return;
-      tempSteerQuat.setFromAxisAngle(wheelSteerAxis, steerAngle || 0);
-      const delta = typeof rollDelta === "number" ? rollDelta : 0;
-      rig.forEach((wheel) => {
-        wheel.angle += delta;
-        tempRollQuat.setFromAxisAngle(wheelRollAxis, wheel.angle);
-        if (wheel.steerable) {
-          if (wheel.pivot && wheel.pivot !== wheel.mesh) {
-            wheel.pivot.quaternion.copy(wheel.pivotBaseQuaternion).multiply(tempSteerQuat);
-            wheel.mesh.quaternion.copy(wheel.baseQuaternion).multiply(tempRollQuat);
-          } else {
-            wheel.mesh.quaternion.copy(wheel.baseQuaternion).multiply(tempSteerQuat).multiply(tempRollQuat);
-          }
-        } else {
-          wheel.mesh.quaternion.copy(wheel.baseQuaternion).multiply(tempRollQuat);
-        }
-      });
-    }
-
-    async function makeCar() {
-      const baseScene = await carModelPromise;
-      const car = cloneSkeleton(baseScene);
-      cloneMaterials(car);
-
-      const { wheelRig, radius } = categorizeWheels(car);
-      const { headlights, tailLights } = collectLightMaterials(car);
-      const bodyMaterials = collectBodyMaterials(car);
-      enableCarShadows(car);
-      const headlightRig = attachHeadlights(car);
-      const rearLights = attachRearLights(car, tailLights);
-
-      const headlightIntensities = headlights.map((m) =>
-        typeof m.emissiveIntensity === "number" ? m.emissiveIntensity : 1.25
-      );
-      const tailLightIntensities = tailLights.map((m) =>
-        typeof m.emissiveIntensity === "number" ? m.emissiveIntensity : 0.8
-      );
-
-      const HEADLIGHT_POWER = 1600;
-
-      car.userData.wheelRig = wheelRig;
-      car.userData.wheelRadius = radius;
-      car.userData.lightsOn = true;
-      car.userData.brakeActive = false;
-      car.userData.rearLights = rearLights;
-
-      car.userData.setPlayerColor = (color) => {
-        bodyMaterials.forEach((mat) => {
-          if (mat?.color) mat.color.set(color);
-        });
-      };
-
-      car.userData.setLights = (on) => {
-        car.userData.lightsOn = Boolean(on);
-        car.userData.applyLights?.(car.userData.brakeActive);
-      };
-
-      car.userData.applyLights = (brake = false) => {
-        headlights.forEach((mat, i) => {
-          if (typeof mat.emissiveIntensity === "number") {
-            mat.emissiveIntensity = car.userData.lightsOn ? headlightIntensities[i] : 0.0;
-          }
-          mat.visible = car.userData.lightsOn;
-        });
-        if (!rearLights) {
-          tailLights.forEach((mat, i) => {
-            const base = tailLightIntensities[i];
-            if (typeof mat.emissiveIntensity === "number") {
-              mat.emissiveIntensity = car.userData.lightsOn || brake ? (brake ? base * 2.4 : base) : 0.02;
-            }
-            mat.visible = car.userData.lightsOn || brake;
-          });
-        }
-
-        if (headlightRig) {
-          const on = car.userData.lightsOn;
-          [headlightRig.left, headlightRig.right].forEach((light) => {
-            if (!light) return;
-            light.visible = on;
-            light.power = on ? HEADLIGHT_POWER : 0;
-          });
-          if (headlightRig.target) headlightRig.target.visible = on;
-          headlightRig.beams?.forEach((beam) => {
-            beam.visible = on;
-            if (beam.material) {
-              const base = typeof beam.userData.baseOpacity === "number" ? beam.userData.baseOpacity : beam.material.opacity;
-              beam.material.opacity = on ? base : 0;
-            }
-          });
-        }
-
-      };
-
-      car.userData.applyLights(false);
-
+      car.position.set(0, 0, 0);
       return car;
     }
 
-    async function setupPlayerCar() {
-      car = await makeCar();
-      scene.add(car);
-      ensureLocalColor();
-    }
-
+    const car = makeCar();
+    scene.add(car);
 
     // --- Multiplayer (online/offline aware) ---
     const remotePlayers = new Map();
 
-    const PLAYER_COLORS = [
-      "#ff6b35", // orange
-      "#ffd166", // yellow
-      "#06d6a0", // green
-      "#5e60ce", // purple
-      "#f72585", // magenta
-      "#2ec4b6", // teal
-      "#f4a261", // tan/orange
-      "#a0d911", // lime
-    ];
-
-    function colorIndexFromId(id) {
-      const text = id || "local";
+    function hashHue(id) {
       let hash = 0;
-      for (let i = 0; i < text.length; i++) {
-        hash = (hash * 31 + text.charCodeAt(i)) >>> 0;
+      for (let i = 0; i < id.length; i++) {
+        hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
       }
-      return hash % PLAYER_COLORS.length;
+      return (hash % 360) / 360;
     }
 
-    function colorizeCar(mesh, idForColor) {
-      const hex = PLAYER_COLORS[colorIndexFromId(idForColor)];
-      const color = new THREE.Color(hex);
-      mesh.userData.playerColor = hex;
-      mesh.userData.setPlayerColor?.(color);
+    function colorizeCar(mesh, hue) {
+      mesh.traverse((child) => {
+        if (!child.isMesh || !child.material) return;
+        const mat = child.material.clone();
+        if (mat.color) {
+          const hsl = {};
+          mat.color.getHSL(hsl);
+          mat.color.setHSL(hue, Math.min(0.8, hsl.s + 0.25), hsl.l);
+        }
+        if (mat.emissive) mat.emissive = mat.emissive.clone();
+        child.material = mat;
+      });
     }
 
-    function ensureLocalColor() {
-      if (!car) return;
-      const colorId = NETWORK.id || "local";
-      if (car.userData.assignedColorId === colorId) return;
-      colorizeCar(car, colorId);
-      car.userData.assignedColorId = colorId;
-    }
-
-    async function spawnRemotePlayer(id, snapshot) {
-      if (remotePlayers.has(id)) return;
-      const placeholder = { mesh: null, target: null, loading: true };
-      remotePlayers.set(id, placeholder);
-      const ghost = await makeCar();
-      colorizeCar(ghost, id);
+    function spawnRemotePlayer(id, snapshot) {
+      const ghost = makeCar();
+      colorizeCar(ghost, hashHue(id));
       ghost.userData.isRemote = true;
-      ghost.userData.applyLights?.(false);
+      ghost.userData.tailLights?.forEach(({ light }) => { light.intensity = 0.12; });
       scene.add(ghost);
-      placeholder.mesh = ghost;
-      placeholder.loading = false;
+      remotePlayers.set(id, { mesh: ghost, target: null });
       applyRemoteState(id, snapshot || { p: [0, 0, 0], y: 0, s: 0 });
     }
 
     function removeRemotePlayer(id) {
       const player = remotePlayers.get(id);
       if (!player) return;
-      if (player.mesh) {
-        scene.remove(player.mesh);
-        player.mesh.traverse((child) => {
-          if (child.geometry) child.geometry.dispose?.();
-          if (child.material) child.material.dispose?.();
-        });
-      }
+      scene.remove(player.mesh);
+      player.mesh.traverse((child) => {
+        if (child.geometry) child.geometry.dispose?.();
+        if (child.material) child.material.dispose?.();
+      });
       remotePlayers.delete(id);
     }
 
@@ -931,25 +561,29 @@
     function updateRemotePlayers(dt) {
       const follow = 1 - Math.pow(0.0015, dt);
       for (const player of remotePlayers.values()) {
-        if (!player.mesh || !player.target) continue;
+        if (!player.target) continue;
         player.mesh.position.lerp(player.target.position, follow);
         const currentYaw = player.mesh.rotation.y;
         const deltaYaw = ((player.target.yaw - currentYaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
         player.mesh.rotation.y = currentYaw + deltaYaw * follow;
-
         const rollDelta = (player.target.speed / (player.mesh.userData.wheelRadius || 1)) * dt;
-        applyWheelPose(player.mesh, player.target.steer || 0, rollDelta);
-        player.mesh.userData.brakeActive = Boolean(player.target.brake);
-        player.mesh.userData.applyLights?.(player.mesh.userData.brakeActive);
-        const throttleHint = Math.sign(player.target.speed || 0);
-        updateRearLights(
-          player.mesh,
-          player.mesh.userData.rearLights,
-          dt,
-          player.target.speed || 0,
-          player.target.speed || 0,
-          throttleHint
-        );
+        player.mesh.userData.wheelGroups?.forEach((group) => {
+          group.rotation.x -= rollDelta;
+        });
+        player.mesh.userData.steeringPivots?.forEach((pivot) => {
+          pivot.rotation.y = player.target.steer || 0;
+        });
+        if (player.mesh.userData.tailLights) {
+          const active = Boolean(player.target.brake);
+          player.mesh.userData.tailLights.forEach(({ light, lens, halo, aura }) => {
+            light.intensity = active ? 1.85 : 0.12;
+            lens.material.emissiveIntensity = active ? 1.9 : 0.38;
+            halo.material.opacity = active ? 0.95 : 0.32;
+            halo.scale.setScalar(active ? 0.52 : 0.38);
+            aura.material.opacity = active ? 0.55 : 0.0;
+            aura.scale.setScalar(active ? 0.88 : 0.72);
+          });
+        }
       }
     }
 
@@ -994,7 +628,6 @@
 
     function sendStateSnapshot() {
       if (!NETWORK.socket || NETWORK.socket.readyState !== WebSocket.OPEN) return;
-      if (!car) return;
       const now = performance.now();
       if (now - NETWORK.lastSend < 50) return; // ~20 Hz
       NETWORK.lastSend = now;
@@ -1022,21 +655,20 @@
       if (data.type === "hello") {
         NETWORK.id = data.id;
         setNetStatus(`Online: ${resolveServerHost()}`, true);
-        ensureLocalColor();
         if (Array.isArray(data.players)) {
           data.players.forEach((p) => {
-            if (!remotePlayers.has(p.id)) spawnRemotePlayer(p.id, p.state).catch((err) => console.warn("Remote spawn failed", err));
+            if (!remotePlayers.has(p.id)) spawnRemotePlayer(p.id, p.state);
             else applyRemoteState(p.id, p.state);
           });
         }
         sendStateSnapshot();
       } else if (data.type === "state" && data.id && data.id !== NETWORK.id) {
-        if (!remotePlayers.has(data.id)) spawnRemotePlayer(data.id, data.state).catch((err) => console.warn("Remote spawn failed", err));
+        if (!remotePlayers.has(data.id)) spawnRemotePlayer(data.id, data.state);
         else applyRemoteState(data.id, data.state);
       } else if (data.type === "player-left" && data.id) {
         removeRemotePlayer(data.id);
       } else if (data.type === "player-joined" && data.id && data.id !== NETWORK.id) {
-        if (!remotePlayers.has(data.id)) spawnRemotePlayer(data.id, { p: [0, 0, 0], y: 0, s: 0 }).catch((err) => console.warn("Remote spawn failed", err));
+        if (!remotePlayers.has(data.id)) spawnRemotePlayer(data.id, { p: [0, 0, 0], y: 0, s: 0 });
       }
     }
 
@@ -1200,11 +832,6 @@
       const dt = Math.min((now - last) / 1000, 0.033);
       last = now;
 
-      if (!car) {
-        requestAnimationFrame(tick);
-        return;
-      }
-
       // Prefer joystick; if idle, use keyboard.
       let ax = joyX;
       let ay = joyY;
@@ -1241,6 +868,9 @@
 
       const visualSteer = -clamp(ax, -1, 1) * (Math.PI / 7);
       state.steer = visualSteer;
+      car.userData.steeringPivots?.forEach((pivot) => {
+        pivot.rotation.y = visualSteer;
+      });
 
       car.rotation.y = state.yaw;
 
@@ -1249,14 +879,14 @@
       car.position.addScaledVector(forward, state.speed * dt);
 
       const rollDelta = (state.speed / (car.userData.wheelRadius || 1)) * dt;
-      applyWheelPose(car, visualSteer, rollDelta);
+      car.userData.wheelGroups?.forEach((group) => {
+        group.rotation.x -= rollDelta;
+      });
 
       // Clamp to bounds (soft wall)
       car.position.x = clamp(car.position.x, -bounds, bounds);
       car.position.z = clamp(car.position.z, -bounds, bounds);
       car.position.y = 0;
-
-      updateRearLights(car, car.userData.rearLights, dt, state.speed, targetSpeed, ay);
 
       // Camera follow
       const offset = camOffset.clone().applyEuler(car.rotation);
@@ -1271,8 +901,16 @@
       const braking = state.speed > 0.2 && targetSpeed < state.speed - 0.12;
       const reversing = state.speed < -0.15;
       state.brakeActive = braking || reversing;
-      car.userData.brakeActive = state.brakeActive;
-      car.userData.applyLights?.(state.brakeActive);
+      if (car.userData.tailLights) {
+        car.userData.tailLights.forEach(({ light, lens, halo, aura }) => {
+          light.intensity = state.brakeActive ? 1.85 : 0.12;
+          lens.material.emissiveIntensity = state.brakeActive ? 1.9 : 0.38;
+          halo.material.opacity = state.brakeActive ? 0.95 : 0.32;
+          halo.scale.setScalar(state.brakeActive ? 0.52 : 0.38);
+          aura.material.opacity = state.brakeActive ? 0.55 : 0.0;
+          aura.scale.setScalar(state.brakeActive ? 0.88 : 0.72);
+        });
+      }
 
       updateRemotePlayers(dt);
 
@@ -1283,12 +921,8 @@
       renderer.render(scene, camera);
       requestAnimationFrame(tick);
     }
-    async function startGame() {
-      await setupPlayerCar();
-      initNetwork();
-      requestAnimationFrame(tick);
-    }
-    startGame();
+    initNetwork();
+    requestAnimationFrame(tick);
 
     // Resize
     function onResize() {
