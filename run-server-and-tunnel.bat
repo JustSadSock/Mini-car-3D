@@ -16,8 +16,8 @@ set "CLOUDFLARE_CONFIG=%CLOUDFLARE_DIR%\config.yml"
 if not exist "%CLOUDFLARE_DIR%" mkdir "%CLOUDFLARE_DIR%"
 copy /y "%~dp0cloudflared-config.yml" "%CLOUDFLARE_CONFIG%" >nul
 
-echo Launching Cloudflare tunnel (irgri-tunnel) using %CLOUDFLARE_CONFIG%...
-start "Cloudflare Tunnel" cmd /k "cloudflared tunnel --config \"%CLOUDFLARE_CONFIG%\" run"
+echo Launching Cloudflare tunnel (irgri-tunnel) using default config path...
+start "Cloudflare Tunnel" cmd /k "cloudflared tunnel run irgri-tunnel"
 
 echo Processes started. Windows will stay open for logs and errors.
 endlocal
