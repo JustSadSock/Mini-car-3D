@@ -384,15 +384,19 @@
         lens.position.set(x, 0.44, -1.215);
         lens.rotation.y = Math.PI;
 
-        const halo = new THREE.Sprite(new THREE.SpriteMaterial({
-          map: makeRadialGlowTexture(256, "#ff2738"),
-          transparent: true,
-          blending: THREE.AdditiveBlending,
-          depthWrite: false,
-          opacity: 0.8
-        }));
-        halo.scale.set(0.42, 0.42, 0.42);
+        const halo = new THREE.Mesh(
+          new THREE.PlaneGeometry(0.42, 0.42),
+          new THREE.MeshBasicMaterial({
+            map: makeRadialGlowTexture(256, "#ff2738"),
+            transparent: true,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            opacity: 0.8,
+            side: THREE.DoubleSide,
+          })
+        );
         halo.position.copy(lens.position).add(new THREE.Vector3(0, 0, -0.02));
+        halo.rotation.y = Math.PI;
 
         const light = new THREE.SpotLight(0xff2738, 0.32, 8.5, Math.PI / 7.2, 0.52, 1.65);
         light.position.set(x, 0.46, -1.06);
@@ -533,8 +537,8 @@
     let inputX = 0;
     let inputY = 0;
 
-    const MAX_FWD = 14.0;
-    const MAX_REV = 7.0;
+    const MAX_FWD = 18.0;
+    const MAX_REV = 9.0;
     const ACCEL = 26.0;   // units/s^2
     const DRAG = 6.0;     // slows down when no throttle
     const TURN = 2.2;     // radians/sec at full steer (scaled by speed)
