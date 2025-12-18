@@ -334,6 +334,68 @@
       body.position.y = 0.42;
       car.add(body);
 
+      const lowerMat = new THREE.MeshStandardMaterial({
+        color: 0x14233a,
+        roughness: 0.62,
+        metalness: 0.16,
+        normalMap: microNormal,
+        normalScale: new THREE.Vector2(0.24, 0.24)
+      });
+
+      const hullShape = new THREE.Shape();
+      hullShape.moveTo(-0.76, 1.22);
+      hullShape.quadraticCurveTo(-0.88, 0.94, -0.78, 0.46);
+      hullShape.quadraticCurveTo(-0.74, -0.12, -0.86, -0.86);
+      hullShape.quadraticCurveTo(-0.66, -1.26, -0.36, -1.36);
+      hullShape.quadraticCurveTo(0, -1.42, 0.36, -1.36);
+      hullShape.quadraticCurveTo(0.66, -1.26, 0.86, -0.86);
+      hullShape.quadraticCurveTo(0.74, -0.12, 0.78, 0.46);
+      hullShape.quadraticCurveTo(0.88, 0.94, 0.76, 1.22);
+      hullShape.quadraticCurveTo(0.48, 1.38, 0, 1.4);
+      hullShape.quadraticCurveTo(-0.48, 1.38, -0.76, 1.22);
+      const hullGeo = new THREE.ExtrudeGeometry(hullShape, {
+        depth: 0.26,
+        bevelEnabled: true,
+        bevelThickness: 0.04,
+        bevelSize: 0.05,
+        bevelSegments: 3,
+        steps: 1,
+      });
+      hullGeo.rotateX(-Math.PI / 2);
+      hullGeo.translate(0, 0, 0.13);
+      const hull = new THREE.Mesh(hullGeo, lowerMat);
+      hull.position.set(0, 0.16, 0);
+      car.add(hull);
+
+      const splitter = new THREE.Mesh(new THREE.BoxGeometry(1.32, 0.08, 0.38), lowerMat.clone());
+      splitter.position.set(0, 0.2, 1.1);
+      splitter.rotation.x = Math.PI / 48;
+      car.add(splitter);
+
+      const intakeMat = lowerMat.clone();
+      intakeMat.metalness = 0.28;
+      intakeMat.roughness = 0.48;
+      const intakeL = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.22, 0.18), intakeMat);
+      intakeL.position.set(-0.52, 0.26, 1.08);
+      intakeL.rotation.y = Math.PI / 14;
+      const intakeR = intakeL.clone();
+      intakeR.position.x *= -1;
+      intakeR.rotation.y *= -1;
+      car.add(intakeL, intakeR);
+
+      const skirt = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.16, 1.9), lowerMat.clone());
+      skirt.position.set(-0.72, 0.28, 0.02);
+      skirt.rotation.z = Math.PI / 90;
+      const skirtR = skirt.clone();
+      skirtR.position.x *= -1;
+      skirtR.rotation.z *= -1;
+      car.add(skirt, skirtR);
+
+      const diffuser = new THREE.Mesh(new THREE.BoxGeometry(1.12, 0.12, 0.42), lowerMat.clone());
+      diffuser.position.set(0, 0.22, -1.08);
+      diffuser.rotation.x = -Math.PI / 18;
+      car.add(diffuser);
+
       const canopyDepth = 1.08;
       const canopyShape = new THREE.Shape();
       canopyShape.moveTo(-1.02, 0.64);
@@ -437,17 +499,8 @@
 
       const wheelGeo = new THREE.CylinderGeometry(0.22, 0.22, 0.18, 18);
       const hubGeo = new THREE.CylinderGeometry(0.08, 0.08, 0.2, 14);
-      const axleGeo = new THREE.CylinderGeometry(0.035, 0.035, 1.35, 10);
       const WHEEL_RADIUS = 0.22;
       car.userData.wheels = [];
-      function axleAt(z) {
-        const axle = new THREE.Mesh(axleGeo, hubMat);
-        axle.rotation.z = Math.PI / 2;
-        axle.position.set(0, 0.22, z);
-        return axle;
-      }
-      car.add(axleAt(0.82));
-      car.add(axleAt(-0.82));
       function wheelWithHub(x, z, steerable = false) {
         const steering = new THREE.Group();
         steering.position.set(x, 0.22, z);
