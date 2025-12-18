@@ -342,12 +342,12 @@
       const rightTarget = makeTarget(center.x + lateral);
       car.add(targetRoot);
 
-      const createLight = () => {
-        const light = new THREE.SpotLight(0xffffff);
-        light.angle = THREE.MathUtils.degToRad(20);
-        light.penumbra = 0.5;
-        light.distance = 48;
-        light.decay = 2;
+        const createLight = () => {
+          const light = new THREE.SpotLight(0xffffff);
+          light.angle = THREE.MathUtils.degToRad(50);
+          light.penumbra = 0.5;
+          light.distance = 48;
+          light.decay = 2;
         light.power = 1600;
         light.map = cookie;
         light.castShadow = false;
