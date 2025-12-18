@@ -112,6 +112,8 @@
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setClearColor(0x0b0f16, 1);
+    renderer.outputEncoding = THREE.sRGBEncoding;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
     wrap.appendChild(renderer.domElement);
 
     // --- Scene / Camera ---
@@ -151,13 +153,121 @@
     grid.position.y = 0.01;
     scene.add(grid);
 
+    function makeNoiseNormalTexture(size = 128, spread = 6) {
+      const data = new Uint8Array(size * size * 3);
+      for (let i = 0; i < size * size; i++) {
+        const base = 128;
+        const nx = base + Math.floor((Math.random() * 2 - 1) * spread);
+        const ny = base + Math.floor((Math.random() * 2 - 1) * spread);
+        const softness = 255 - Math.min(48, Math.abs(nx - base) * 2 + Math.abs(ny - base) * 2);
+        data[i * 3 + 0] = THREE.MathUtils.clamp(nx, 0, 255);
+        data[i * 3 + 1] = THREE.MathUtils.clamp(ny, 0, 255);
+        data[i * 3 + 2] = THREE.MathUtils.clamp(softness, 0, 255);
+      }
+      const tex = new THREE.DataTexture(data, size, size, THREE.RGBFormat);
+      tex.needsUpdate = true;
+      tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+      tex.minFilter = THREE.LinearMipMapLinearFilter;
+      tex.magFilter = THREE.LinearFilter;
+      tex.anisotropy = 4;
+      return tex;
+    }
+
+    function makeRadialGlowTexture(size = 256, color = "#ff2b3a") {
+      const canvas = document.createElement("canvas");
+      canvas.width = canvas.height = size;
+      const ctx = canvas.getContext("2d");
+      const radius = size / 2;
+      const grad = ctx.createRadialGradient(radius, radius, radius * 0.1, radius, radius, radius * 0.95);
+      const col = new THREE.Color(color);
+      const solid = `rgba(${Math.round(col.r * 255)},${Math.round(col.g * 255)},${Math.round(col.b * 255)},`;
+      grad.addColorStop(0, `${solid}0.9)`);
+      grad.addColorStop(0.35, `${solid}0.65)`);
+      grad.addColorStop(0.75, `${solid}0.22)`);
+      grad.addColorStop(1, `${solid}0)`);
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, size, size);
+
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.minFilter = THREE.LinearMipMapLinearFilter;
+      tex.magFilter = THREE.LinearFilter;
+      tex.anisotropy = 4;
+      return tex;
+    }
+
     // --- Car (simple geometry, no drama) ---
     function makeCar() {
       const car = new THREE.Group();
 
-      const bodyMat = new THREE.MeshStandardMaterial({ color: 0xff3d3d, roughness: 0.6, metalness: 0.1 });
-      const cabinMat = new THREE.MeshStandardMaterial({ color: 0x101419, roughness: 0.35, metalness: 0.0 });
-      const wheelMat = new THREE.MeshStandardMaterial({ color: 0x121212, roughness: 1.0, metalness: 0.0 });
+      const microNormal = makeNoiseNormalTexture();
+
+      function makeNumberTexture(num = 7) {
+        const canvas = document.createElement('canvas');
+        canvas.width = canvas.height = 128;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = 'rgba(255,255,255,0)';
+        ctx.fillRect(0, 0, 128, 128);
+        ctx.fillStyle = '#f12c4b';
+        ctx.strokeStyle = '#0f1624';
+        ctx.lineWidth = 6;
+        ctx.font = 'bold 92px Inter, system-ui';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(String(num), 64, 72);
+        ctx.strokeText(String(num), 64, 72);
+        const tex = new THREE.CanvasTexture(canvas);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.anisotropy = 4;
+        return tex;
+      }
+
+      const bodyMat = new THREE.MeshStandardMaterial({
+        color: 0xff5e6d,
+        roughness: 0.45,
+        metalness: 0.08,
+        normalMap: microNormal,
+        normalScale: new THREE.Vector2(0.35, 0.35)
+      });
+      const cabinMat = new THREE.MeshStandardMaterial({
+        color: 0x0f1624,
+        roughness: 0.38,
+        metalness: 0.03,
+        normalMap: microNormal,
+        normalScale: new THREE.Vector2(0.25, 0.25)
+      });
+      const wheelMat = new THREE.MeshStandardMaterial({
+        color: 0x1b1b1b,
+        roughness: 0.94,
+        metalness: 0.02
+      });
+      const hubMat = new THREE.MeshStandardMaterial({
+        color: 0xced3de,
+        roughness: 0.32,
+        metalness: 0.55
+      });
+      const headlightMat = new THREE.MeshStandardMaterial({
+        color: 0xd9e2ff,
+        emissive: 0xf4f7ff,
+        emissiveIntensity: 0.8,
+        roughness: 0.24,
+        metalness: 0.12,
+        normalMap: microNormal,
+        normalScale: new THREE.Vector2(0.16, 0.16),
+        transparent: true,
+        opacity: 0.95
+      });
+      const tailLightMat = new THREE.MeshStandardMaterial({
+        color: 0x9f0012,
+        emissive: 0xff2b3a,
+        emissiveIntensity: 0.38,
+        roughness: 0.42,
+        metalness: 0.04,
+        normalMap: microNormal,
+        normalScale: new THREE.Vector2(0.18, 0.18),
+        transparent: true,
+        opacity: 0.95
+      });
 
       const body = new THREE.Mesh(new THREE.BoxGeometry(1.35, 0.45, 2.4), bodyMat);
       body.position.y = 0.42;
@@ -167,7 +277,13 @@
       cabin.position.set(0, 0.78, -0.1);
       car.add(cabin);
 
-      const bumperMat = new THREE.MeshStandardMaterial({ color: 0xe0e6f0, roughness: 0.8, metalness: 0.2 });
+      const bumperMat = new THREE.MeshStandardMaterial({
+        color: 0xe0e6f0,
+        roughness: 0.82,
+        metalness: 0.24,
+        normalMap: microNormal,
+        normalScale: new THREE.Vector2(0.18, 0.18)
+      });
       const bumperF = new THREE.Mesh(new THREE.BoxGeometry(1.25, 0.18, 0.22), bumperMat);
       bumperF.position.set(0, 0.26, 1.18);
       car.add(bumperF);
@@ -176,26 +292,156 @@
       bumperB.position.set(0, 0.26, -1.18);
       car.add(bumperB);
 
+      function makeHeadlight(x) {
+        const lens = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.12, 0.06), headlightMat.clone());
+        lens.position.set(x, 0.48, 1.22);
+        const light = new THREE.SpotLight(0xffffff, 2.65, 30, Math.PI / 6.5, 0.36, 1.05);
+        light.position.set(x * 0.92, 0.54, 1.08);
+        light.target.position.set(x * 0.6, 0.28, 6.2);
+        car.add(light.target);
+        car.add(light);
+        car.add(lens);
+      }
+
+      makeHeadlight(-0.35);
+      makeHeadlight(0.35);
+
       const wheelGeo = new THREE.CylinderGeometry(0.22, 0.22, 0.18, 18);
-      function wheel(x, z) {
+      const hubGeo = new THREE.CylinderGeometry(0.08, 0.08, 0.2, 14);
+      const axleGeo = new THREE.CylinderGeometry(0.035, 0.035, 1.35, 10);
+      function axleAt(z) {
+        const axle = new THREE.Mesh(axleGeo, hubMat);
+        axle.rotation.z = Math.PI / 2;
+        axle.position.set(0, 0.22, z);
+        return axle;
+      }
+      car.add(axleAt(0.82));
+      car.add(axleAt(-0.82));
+      function wheelWithHub(x, z) {
+        const group = new THREE.Group();
         const w = new THREE.Mesh(wheelGeo, wheelMat);
         w.rotation.z = Math.PI / 2;
         w.position.set(x, 0.22, z);
-        return w;
+        const hub = new THREE.Mesh(hubGeo, hubMat);
+        hub.rotation.z = Math.PI / 2;
+        hub.position.set(x, 0.22, z);
+        group.add(w);
+        group.add(hub);
+        return group;
       }
-      car.add(wheel(-0.62, 0.82));
-      car.add(wheel( 0.62, 0.82));
-      car.add(wheel(-0.62,-0.82));
-      car.add(wheel( 0.62,-0.82));
+      car.add(wheelWithHub(-0.62, 0.82));
+      car.add(wheelWithHub( 0.62, 0.82));
+      car.add(wheelWithHub(-0.62,-0.82));
+      car.add(wheelWithHub( 0.62,-0.82));
+
+      const stickerMat = new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        roughness: 0.5,
+        metalness: 0.0,
+        transparent: true,
+        opacity: 0.96,
+        side: THREE.DoubleSide,
+        normalMap: microNormal,
+        normalScale: new THREE.Vector2(0.2, 0.2)
+      });
+
+      const stripe = new THREE.Mesh(new THREE.PlaneGeometry(0.34, 1.6), stickerMat.clone());
+      stripe.material.color.set(0xffd36b);
+      stripe.rotation.x = -Math.PI / 2;
+      stripe.position.set(-0.35, 0.66, 0.2);
+      car.add(stripe);
+
+      const stripe2 = stripe.clone();
+      stripe2.position.x = 0.35;
+      stripe2.material = stripe.material.clone();
+      stripe2.material.color = new THREE.Color(0xffffff);
+      car.add(stripe2);
+
+      const doorNumGeo = new THREE.PlaneGeometry(0.64, 0.46);
+      const doorNumMat = stickerMat.clone();
+      doorNumMat.color.set(0xffffff);
+      doorNumMat.map = makeNumberTexture(7);
+      doorNumMat.transparent = true;
+      const doorNumL = new THREE.Mesh(doorNumGeo, doorNumMat);
+      doorNumL.position.set(-0.68, 0.58, 0.2);
+      doorNumL.rotation.y = Math.PI / 2;
+      car.add(doorNumL);
+
+      const doorNumR = doorNumL.clone();
+      doorNumR.position.x = 0.68;
+      doorNumR.rotation.y = -Math.PI / 2;
+      car.add(doorNumR);
+
+      const badgeMat = stickerMat.clone();
+      badgeMat.color.set(0x4fb7ff);
+      const badge = new THREE.Mesh(new THREE.PlaneGeometry(0.28, 0.18), badgeMat);
+      badge.position.set(0, 0.62, 1.22);
+      car.add(badge);
+
+      const brakeLights = [];
+      function makeTailLight(x) {
+        const lens = new THREE.Mesh(new THREE.CircleGeometry(0.095, 22), tailLightMat.clone());
+        lens.position.set(x, 0.44, -1.215);
+        lens.rotation.y = Math.PI;
+
+        const halo = new THREE.Mesh(
+          new THREE.PlaneGeometry(0.42, 0.42),
+          new THREE.MeshBasicMaterial({
+            map: makeRadialGlowTexture(256, "#ff2738"),
+            transparent: true,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            opacity: 0.8,
+            side: THREE.DoubleSide,
+          })
+        );
+        halo.position.copy(lens.position).add(new THREE.Vector3(0, 0, -0.02));
+        halo.rotation.y = Math.PI;
+
+        const aura = new THREE.Mesh(
+          new THREE.PlaneGeometry(0.68, 0.68),
+          new THREE.MeshBasicMaterial({
+            map: makeRadialGlowTexture(256, "#ff5a6b"),
+            transparent: true,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            opacity: 0.0,
+            side: THREE.DoubleSide,
+          })
+        );
+        aura.position.copy(lens.position).add(new THREE.Vector3(0, 0, -0.03));
+        aura.rotation.y = Math.PI;
+
+        const light = new THREE.SpotLight(0xff2738, 0.32, 8.5, Math.PI / 7.2, 0.52, 1.65);
+        light.position.set(x, 0.46, -1.06);
+        light.target.position.set(x * 0.85, 0.44, -6.4);
+        car.add(light.target);
+        car.add(light);
+        car.add(lens);
+        car.add(halo);
+        car.add(aura);
+        brakeLights.push({ light, lens, halo, aura });
+      }
+
+      makeTailLight(-0.36);
+      makeTailLight(0.36);
 
       // A tiny "arrow" so you always know forward direction
       const nose = new THREE.Mesh(
         new THREE.ConeGeometry(0.18, 0.45, 18),
-        new THREE.MeshStandardMaterial({ color: 0xffd36b, roughness: 0.7, metalness: 0.0 })
+        new THREE.MeshStandardMaterial({
+          color: 0xffd36b,
+          roughness: 0.48,
+          metalness: 0.05,
+          normalMap: microNormal,
+          normalScale: new THREE.Vector2(0.22, 0.22)
+        })
       );
       nose.rotation.x = Math.PI / 2;
       nose.position.set(0, 0.7, 1.05);
       car.add(nose);
+
+      car.userData.tailLights = brakeLights;
 
       car.position.set(0, 0, 0);
       return car;
@@ -207,6 +453,10 @@
     // --- Input: single joystick + keyboard fallback ---
     const joy = document.getElementById("joy");
     const nub = document.getElementById("joyNub");
+    const isCoarsePointer = window.matchMedia("(pointer: coarse)").matches;
+    if (!isCoarsePointer) {
+      joy.style.display = "none";
+    }
 
     let joyActive = false;
     let joyPointerId = null;
@@ -299,9 +549,12 @@
       yaw: 0
     };
 
-    const MAX_FWD = 12.0;
-    const MAX_REV = 6.0;
-    const ACCEL = 18.0;   // units/s^2
+    let inputX = 0;
+    let inputY = 0;
+
+    const MAX_FWD = 18.0;
+    const MAX_REV = 9.0;
+    const ACCEL = 26.0;   // units/s^2
     const DRAG = 6.0;     // slows down when no throttle
     const TURN = 2.2;     // radians/sec at full steer (scaled by speed)
 
@@ -310,6 +563,9 @@
     // Camera follow (portrait-friendly)
     const camOffset = new THREE.Vector3(0, 6.0, -12.0);
     const camLookAhead = new THREE.Vector3(0, 1.2, 6.5);
+    const camRollMax = Math.PI / 16; // gentle lean
+    const camRollLimit = Math.PI / 12; // hard cap to prevent flips
+    const camRollSpeed = 5.0;
 
     function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
     function approach(current, target, maxDelta) {
@@ -319,6 +575,9 @@
     }
 
     let last = performance.now();
+    let camRoll = 0;
+    const zAxis = new THREE.Vector3(0, 0, 1);
+    const rollQuat = new THREE.Quaternion();
     function tick(now) {
       const dt = Math.min((now - last) / 1000, 0.033);
       last = now;
@@ -326,11 +585,18 @@
       // Prefer joystick; if idle, use keyboard.
       let ax = joyX;
       let ay = joyY;
-      if (!joyActive && ax === 0 && ay === 0) {
+      if ((!joyActive || !isCoarsePointer) && ax === 0 && ay === 0) {
         const k = keyboardAxes();
         ax = k.x;
         ay = k.y;
       }
+
+      // Smooth input so key presses feel gentle on desktop.
+      const INPUT_ACCEL = 5.0;
+      inputX = approach(inputX, ax, INPUT_ACCEL * dt);
+      inputY = approach(inputY, ay, INPUT_ACCEL * dt);
+      ax = inputX;
+      ay = inputY;
 
       // Target speed from throttle (ay)
       let targetSpeed = 0;
@@ -344,9 +610,10 @@
         state.speed = approach(state.speed, 0, DRAG * dt);
       }
 
-      // Turning scales with speed (so you don't spin in place like a shopping cart)
+      // Turning scales with speed (no rotation while stopped)
       const speedFactor = clamp(Math.abs(state.speed) / MAX_FWD, 0, 1);
-      const turnRate = -ax * TURN * (0.35 + 0.65 * speedFactor);
+      const steer = state.speed < -0.05 ? -ax : ax;
+      const turnRate = -steer * TURN * speedFactor;
       state.yaw += turnRate * dt;
 
       car.rotation.y = state.yaw;
@@ -365,8 +632,30 @@
       const desiredCam = car.position.clone().add(offset);
       camera.position.lerp(desiredCam, 1 - Math.pow(0.001, dt)); // smooth
 
+      // Reset up before lookAt so roll never leaks into the base orientation.
+      camera.up.set(0, 1, 0);
       const look = camLookAhead.clone().applyEuler(car.rotation).add(car.position);
       camera.lookAt(look);
+
+      // Camera lean follows steering direction consistently in forward and reverse
+      const targetRoll = clamp(ax, -1, 1) * camRollMax;
+      camRoll = clamp(approach(camRoll, targetRoll, camRollSpeed * dt), -camRollLimit, camRollLimit);
+      rollQuat.setFromAxisAngle(zAxis, camRoll);
+      camera.quaternion.multiply(rollQuat);
+
+      if (car.userData.tailLights) {
+        const braking = state.speed > 0.2 && targetSpeed < state.speed - 0.12;
+        const reversing = state.speed < -0.15;
+        const active = braking || reversing;
+        car.userData.tailLights.forEach(({ light, lens, halo, aura }) => {
+          light.intensity = active ? 1.85 : 0.12;
+          lens.material.emissiveIntensity = active ? 1.9 : 0.38;
+          halo.material.opacity = active ? 0.95 : 0.32;
+          halo.scale.setScalar(active ? 0.52 : 0.38);
+          aura.material.opacity = active ? 0.55 : 0.0;
+          aura.scale.setScalar(active ? 0.88 : 0.72);
+        });
+      }
 
       renderer.render(scene, camera);
       requestAnimationFrame(tick);
