@@ -75,6 +75,12 @@
       box-shadow: 0 10px 22px rgba(0,0,0,0.35);
     }
 
+    @media (orientation: landscape) {
+      #joy {
+        left: 24%;
+      }
+    }
+
   </style>
 </head>
 
@@ -340,7 +346,7 @@
 
       // Turning scales with speed (so you don't spin in place like a shopping cart)
       const speedFactor = clamp(Math.abs(state.speed) / MAX_FWD, 0, 1);
-      const turnRate = ax * TURN * (0.35 + 0.65 * speedFactor);
+      const turnRate = -ax * TURN * (0.35 + 0.65 * speedFactor);
       state.yaw += turnRate * dt;
 
       car.rotation.y = state.yaw;
