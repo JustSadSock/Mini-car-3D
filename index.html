@@ -599,7 +599,7 @@
       const timer = setTimeout(() => controller.abort(), timeoutMs);
       const protocol = host.includes("localhost") || host.includes("127.0.0.1") ? "http" : "https";
       try {
-        const res = await fetch(`${protocol}://${host}/`, {
+        const res = await fetch(`${protocol}://${host}/health`, {
           signal: controller.signal,
           cache: "no-store"
         });

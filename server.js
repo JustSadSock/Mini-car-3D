@@ -35,14 +35,50 @@ const MIME = {
   '.svg': 'image/svg+xml'
 };
 
+const CORS = {
+  allowList(origin) {
+    if (!origin) return '*';
+    if (origin.endsWith('.netlify.app')) return origin;
+    if (origin === 'https://mini-car-3d.netlify.app') return origin;
+    return null;
+  },
+  headers(origin) {
+    const allowed = this.allowList(origin);
+    if (!allowed) return {};
+    return {
+      'Access-Control-Allow-Origin': allowed,
+      'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      'Access-Control-Max-Age': '86400'
+    };
+  }
+};
+
 const server = http.createServer((req, res) => {
-  if (req.url === '/ping') {
-    res.writeHead(200, {
-      'Content-Type': 'text/plain; charset=utf-8',
-      'Cache-Control': 'no-cache',
-      'Access-Control-Allow-Origin': '*'
+  const origin = req.headers.origin;
+  const corsHeaders = CORS.headers(origin);
+
+  if (req.method === 'OPTIONS') {
+    res.writeHead(CORS.allowList(origin) ? 204 : 403, {
+      ...corsHeaders,
+      'Content-Length': '0'
     });
-    res.end('pong');
+    res.end();
+    return;
+  }
+
+  if (req.url === '/health') {
+    if (!CORS.allowList(origin)) {
+      res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ ok: false, error: 'CORS blocked' }));
+      return;
+    }
+    res.writeHead(200, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': 'no-cache',
+      ...corsHeaders
+    });
+    res.end(JSON.stringify({ ok: true }));
     return;
   }
 
@@ -50,7 +86,7 @@ const server = http.createServer((req, res) => {
   if (!resolved || !fs.existsSync(resolved)) {
     res.writeHead(404, {
       'Content-Type': 'text/plain; charset=utf-8',
-      'Access-Control-Allow-Origin': '*'
+      ...corsHeaders
     });
     res.end('Not found');
     return;
@@ -61,7 +97,7 @@ const server = http.createServer((req, res) => {
   res.writeHead(200, {
     'Content-Type': mime,
     'Cache-Control': ext === '.html' ? 'no-cache' : 'public, max-age=3600',
-    'Access-Control-Allow-Origin': '*'
+    ...corsHeaders
   });
   fs.createReadStream(resolved).pipe(res);
 });
