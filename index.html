@@ -398,6 +398,20 @@
         halo.position.copy(lens.position).add(new THREE.Vector3(0, 0, -0.02));
         halo.rotation.y = Math.PI;
 
+        const aura = new THREE.Mesh(
+          new THREE.PlaneGeometry(0.68, 0.68),
+          new THREE.MeshBasicMaterial({
+            map: makeRadialGlowTexture(256, "#ff5a6b"),
+            transparent: true,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            opacity: 0.0,
+            side: THREE.DoubleSide,
+          })
+        );
+        aura.position.copy(lens.position).add(new THREE.Vector3(0, 0, -0.03));
+        aura.rotation.y = Math.PI;
+
         const light = new THREE.SpotLight(0xff2738, 0.32, 8.5, Math.PI / 7.2, 0.52, 1.65);
         light.position.set(x, 0.46, -1.06);
         light.target.position.set(x * 0.85, 0.44, -6.4);
@@ -405,7 +419,8 @@
         car.add(light);
         car.add(lens);
         car.add(halo);
-        brakeLights.push({ light, lens, halo });
+        car.add(aura);
+        brakeLights.push({ light, lens, halo, aura });
       }
 
       makeTailLight(-0.36);
@@ -595,10 +610,10 @@
         state.speed = approach(state.speed, 0, DRAG * dt);
       }
 
-      // Turning scales with speed (so you don't spin in place like a shopping cart)
+      // Turning scales with speed (no rotation while stopped)
       const speedFactor = clamp(Math.abs(state.speed) / MAX_FWD, 0, 1);
       const steer = state.speed < -0.05 ? -ax : ax;
-      const turnRate = -steer * TURN * (0.35 + 0.65 * speedFactor);
+      const turnRate = -steer * TURN * speedFactor;
       state.yaw += turnRate * dt;
 
       car.rotation.y = state.yaw;
@@ -632,11 +647,13 @@
         const braking = state.speed > 0.2 && targetSpeed < state.speed - 0.12;
         const reversing = state.speed < -0.15;
         const active = braking || reversing;
-        car.userData.tailLights.forEach(({ light, lens, halo }) => {
+        car.userData.tailLights.forEach(({ light, lens, halo, aura }) => {
           light.intensity = active ? 1.85 : 0.12;
           lens.material.emissiveIntensity = active ? 1.9 : 0.38;
           halo.material.opacity = active ? 0.95 : 0.32;
           halo.scale.setScalar(active ? 0.52 : 0.38);
+          aura.material.opacity = active ? 0.55 : 0.0;
+          aura.scale.setScalar(active ? 0.88 : 0.72);
         });
       }
 
