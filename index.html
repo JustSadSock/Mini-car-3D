@@ -537,6 +537,8 @@
     // Camera follow (portrait-friendly)
     const camOffset = new THREE.Vector3(0, 6.0, -12.0);
     const camLookAhead = new THREE.Vector3(0, 1.2, 6.5);
+    const camRollMax = Math.PI / 16; // gentle lean
+    const camRollSpeed = 5.0;
 
     function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
     function approach(current, target, maxDelta) {
@@ -546,6 +548,7 @@
     }
 
     let last = performance.now();
+    let camRoll = 0;
     function tick(now) {
       const dt = Math.min((now - last) / 1000, 0.033);
       last = now;
@@ -595,6 +598,11 @@
 
       const look = camLookAhead.clone().applyEuler(car.rotation).add(car.position);
       camera.lookAt(look);
+
+      // Camera lean follows steering direction consistently in forward and reverse
+      const targetRoll = clamp(ax, -1, 1) * camRollMax;
+      camRoll = approach(camRoll, targetRoll, camRollSpeed * dt);
+      camera.rotation.z = camRoll;
 
       if (car.userData.tailLights) {
         const braking = state.speed > 0.2 && targetSpeed < state.speed - 0.12;
