@@ -434,6 +434,10 @@
     // --- Input: single joystick + keyboard fallback ---
     const joy = document.getElementById("joy");
     const nub = document.getElementById("joyNub");
+    const isCoarsePointer = window.matchMedia("(pointer: coarse)").matches;
+    if (!isCoarsePointer) {
+      joy.style.display = "none";
+    }
 
     let joyActive = false;
     let joyPointerId = null;
@@ -526,6 +530,9 @@
       yaw: 0
     };
 
+    let inputX = 0;
+    let inputY = 0;
+
     const MAX_FWD = 12.0;
     const MAX_REV = 6.0;
     const ACCEL = 18.0;   // units/s^2
@@ -559,11 +566,18 @@
       // Prefer joystick; if idle, use keyboard.
       let ax = joyX;
       let ay = joyY;
-      if (!joyActive && ax === 0 && ay === 0) {
+      if ((!joyActive || !isCoarsePointer) && ax === 0 && ay === 0) {
         const k = keyboardAxes();
         ax = k.x;
         ay = k.y;
       }
+
+      // Smooth input so key presses feel gentle on desktop.
+      const INPUT_ACCEL = 5.0;
+      inputX = approach(inputX, ax, INPUT_ACCEL * dt);
+      inputY = approach(inputY, ay, INPUT_ACCEL * dt);
+      ax = inputX;
+      ay = inputY;
 
       // Target speed from throttle (ay)
       let targetSpeed = 0;
