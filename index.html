@@ -112,6 +112,8 @@
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setClearColor(0x0b0f16, 1);
+    renderer.outputEncoding = THREE.sRGBEncoding;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
     wrap.appendChild(renderer.domElement);
 
     // --- Scene / Camera ---
@@ -151,13 +153,76 @@
     grid.position.y = 0.01;
     scene.add(grid);
 
+    function makeNoiseNormalTexture(size = 128, spread = 6) {
+      const data = new Uint8Array(size * size * 3);
+      for (let i = 0; i < size * size; i++) {
+        const base = 128;
+        const nx = base + Math.floor((Math.random() * 2 - 1) * spread);
+        const ny = base + Math.floor((Math.random() * 2 - 1) * spread);
+        const softness = 255 - Math.min(48, Math.abs(nx - base) * 2 + Math.abs(ny - base) * 2);
+        data[i * 3 + 0] = THREE.MathUtils.clamp(nx, 0, 255);
+        data[i * 3 + 1] = THREE.MathUtils.clamp(ny, 0, 255);
+        data[i * 3 + 2] = THREE.MathUtils.clamp(softness, 0, 255);
+      }
+      const tex = new THREE.DataTexture(data, size, size, THREE.RGBFormat);
+      tex.needsUpdate = true;
+      tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+      tex.minFilter = THREE.LinearMipMapLinearFilter;
+      tex.magFilter = THREE.LinearFilter;
+      tex.anisotropy = 4;
+      return tex;
+    }
+
     // --- Car (simple geometry, no drama) ---
     function makeCar() {
       const car = new THREE.Group();
 
-      const bodyMat = new THREE.MeshStandardMaterial({ color: 0xff3d3d, roughness: 0.6, metalness: 0.1 });
-      const cabinMat = new THREE.MeshStandardMaterial({ color: 0x101419, roughness: 0.35, metalness: 0.0 });
-      const wheelMat = new THREE.MeshStandardMaterial({ color: 0x121212, roughness: 1.0, metalness: 0.0 });
+      const microNormal = makeNoiseNormalTexture();
+
+      function makeNumberTexture(num = 7) {
+        const canvas = document.createElement('canvas');
+        canvas.width = canvas.height = 128;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = 'rgba(255,255,255,0)';
+        ctx.fillRect(0, 0, 128, 128);
+        ctx.fillStyle = '#f12c4b';
+        ctx.strokeStyle = '#0f1624';
+        ctx.lineWidth = 6;
+        ctx.font = 'bold 92px Inter, system-ui';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(String(num), 64, 72);
+        ctx.strokeText(String(num), 64, 72);
+        const tex = new THREE.CanvasTexture(canvas);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.anisotropy = 4;
+        return tex;
+      }
+
+      const bodyMat = new THREE.MeshStandardMaterial({
+        color: 0xff5e6d,
+        roughness: 0.45,
+        metalness: 0.08,
+        normalMap: microNormal,
+        normalScale: new THREE.Vector2(0.35, 0.35)
+      });
+      const cabinMat = new THREE.MeshStandardMaterial({
+        color: 0x0f1624,
+        roughness: 0.38,
+        metalness: 0.03,
+        normalMap: microNormal,
+        normalScale: new THREE.Vector2(0.25, 0.25)
+      });
+      const wheelMat = new THREE.MeshStandardMaterial({
+        color: 0x1b1b1b,
+        roughness: 0.94,
+        metalness: 0.02
+      });
+      const hubMat = new THREE.MeshStandardMaterial({
+        color: 0xced3de,
+        roughness: 0.32,
+        metalness: 0.55
+      });
 
       const body = new THREE.Mesh(new THREE.BoxGeometry(1.35, 0.45, 2.4), bodyMat);
       body.position.y = 0.42;
@@ -167,7 +232,13 @@
       cabin.position.set(0, 0.78, -0.1);
       car.add(cabin);
 
-      const bumperMat = new THREE.MeshStandardMaterial({ color: 0xe0e6f0, roughness: 0.8, metalness: 0.2 });
+      const bumperMat = new THREE.MeshStandardMaterial({
+        color: 0xe0e6f0,
+        roughness: 0.82,
+        metalness: 0.24,
+        normalMap: microNormal,
+        normalScale: new THREE.Vector2(0.18, 0.18)
+      });
       const bumperF = new THREE.Mesh(new THREE.BoxGeometry(1.25, 0.18, 0.22), bumperMat);
       bumperF.position.set(0, 0.26, 1.18);
       car.add(bumperF);
@@ -177,21 +248,87 @@
       car.add(bumperB);
 
       const wheelGeo = new THREE.CylinderGeometry(0.22, 0.22, 0.18, 18);
-      function wheel(x, z) {
+      const hubGeo = new THREE.CylinderGeometry(0.08, 0.08, 0.2, 14);
+      const axleGeo = new THREE.CylinderGeometry(0.035, 0.035, 1.35, 10);
+      function axleAt(z) {
+        const axle = new THREE.Mesh(axleGeo, hubMat);
+        axle.rotation.z = Math.PI / 2;
+        axle.position.set(0, 0.22, z);
+        return axle;
+      }
+      car.add(axleAt(0.82));
+      car.add(axleAt(-0.82));
+      function wheelWithHub(x, z) {
+        const group = new THREE.Group();
         const w = new THREE.Mesh(wheelGeo, wheelMat);
         w.rotation.z = Math.PI / 2;
         w.position.set(x, 0.22, z);
-        return w;
+        const hub = new THREE.Mesh(hubGeo, hubMat);
+        hub.rotation.z = Math.PI / 2;
+        hub.position.set(x, 0.22, z);
+        group.add(w);
+        group.add(hub);
+        return group;
       }
-      car.add(wheel(-0.62, 0.82));
-      car.add(wheel( 0.62, 0.82));
-      car.add(wheel(-0.62,-0.82));
-      car.add(wheel( 0.62,-0.82));
+      car.add(wheelWithHub(-0.62, 0.82));
+      car.add(wheelWithHub( 0.62, 0.82));
+      car.add(wheelWithHub(-0.62,-0.82));
+      car.add(wheelWithHub( 0.62,-0.82));
+
+      const stickerMat = new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        roughness: 0.5,
+        metalness: 0.0,
+        transparent: true,
+        opacity: 0.96,
+        side: THREE.DoubleSide,
+        normalMap: microNormal,
+        normalScale: new THREE.Vector2(0.2, 0.2)
+      });
+
+      const stripe = new THREE.Mesh(new THREE.PlaneGeometry(0.34, 1.6), stickerMat.clone());
+      stripe.material.color.set(0xffd36b);
+      stripe.rotation.x = -Math.PI / 2;
+      stripe.position.set(-0.35, 0.66, 0.2);
+      car.add(stripe);
+
+      const stripe2 = stripe.clone();
+      stripe2.position.x = 0.35;
+      stripe2.material = stripe.material.clone();
+      stripe2.material.color = new THREE.Color(0xffffff);
+      car.add(stripe2);
+
+      const doorNumGeo = new THREE.PlaneGeometry(0.64, 0.46);
+      const doorNumMat = stickerMat.clone();
+      doorNumMat.color.set(0xffffff);
+      doorNumMat.map = makeNumberTexture(7);
+      doorNumMat.transparent = true;
+      const doorNumL = new THREE.Mesh(doorNumGeo, doorNumMat);
+      doorNumL.position.set(-0.68, 0.58, 0.2);
+      doorNumL.rotation.y = Math.PI / 2;
+      car.add(doorNumL);
+
+      const doorNumR = doorNumL.clone();
+      doorNumR.position.x = 0.68;
+      doorNumR.rotation.y = -Math.PI / 2;
+      car.add(doorNumR);
+
+      const badgeMat = stickerMat.clone();
+      badgeMat.color.set(0x4fb7ff);
+      const badge = new THREE.Mesh(new THREE.PlaneGeometry(0.28, 0.18), badgeMat);
+      badge.position.set(0, 0.62, 1.22);
+      car.add(badge);
 
       // A tiny "arrow" so you always know forward direction
       const nose = new THREE.Mesh(
         new THREE.ConeGeometry(0.18, 0.45, 18),
-        new THREE.MeshStandardMaterial({ color: 0xffd36b, roughness: 0.7, metalness: 0.0 })
+        new THREE.MeshStandardMaterial({
+          color: 0xffd36b,
+          roughness: 0.48,
+          metalness: 0.05,
+          normalMap: microNormal,
+          normalScale: new THREE.Vector2(0.22, 0.22)
+        })
       );
       nose.rotation.x = Math.PI / 2;
       nose.position.set(0, 0.7, 1.05);
