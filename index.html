@@ -282,11 +282,27 @@
         normalScale: new THREE.Vector2(0.35, 0.35)
       });
       const cabinMat = new THREE.MeshStandardMaterial({
-        color: 0x0f1624,
-        roughness: 0.38,
-        metalness: 0.03,
+        color: 0x16263b,
+        roughness: 0.35,
+        metalness: 0.08,
         normalMap: microNormal,
         normalScale: new THREE.Vector2(0.25, 0.25)
+      });
+      const roofShellMat = new THREE.MeshStandardMaterial({
+        color: 0x1f3350,
+        roughness: 0.28,
+        metalness: 0.12,
+        normalMap: microNormal,
+        normalScale: new THREE.Vector2(0.22, 0.22)
+      });
+      const roofGlassMat = new THREE.MeshStandardMaterial({
+        color: 0x0d1826,
+        roughness: 0.12,
+        metalness: 0.32,
+        transparent: true,
+        opacity: 0.86,
+        normalMap: microNormal,
+        normalScale: new THREE.Vector2(0.22, 0.22)
       });
       const wheelMat = new THREE.MeshStandardMaterial({
         color: 0x1b1b1b,
@@ -325,9 +341,20 @@
       body.position.y = 0.42;
       car.add(body);
 
-      const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.05, 0.42, 1.2), cabinMat);
-      cabin.position.set(0, 0.78, -0.1);
+      const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.05, 0.34, 1.2), cabinMat);
+      cabin.position.set(0, 0.74, -0.1);
       car.add(cabin);
+
+      const roofShell = new THREE.Mesh(new THREE.CapsuleGeometry(0.56, 0.62, 12, 24), roofShellMat);
+      roofShell.rotation.x = Math.PI / 2;
+      roofShell.scale.set(0.96, 1, 1);
+      roofShell.position.set(0, 0.98, -0.12);
+      car.add(roofShell);
+
+      const roofGlass = new THREE.Mesh(new THREE.PlaneGeometry(0.88, 0.62), roofGlassMat);
+      roofGlass.rotation.x = -Math.PI / 2;
+      roofGlass.position.set(0, 1.02, -0.12);
+      car.add(roofGlass);
 
       const bumperMat = new THREE.MeshStandardMaterial({
         color: 0xe0e6f0,
@@ -414,7 +441,7 @@
       roofNumber.material.map = makeNumberTexture(12);
       roofNumber.material.transparent = true;
       roofNumber.rotation.x = -Math.PI / 2;
-      roofNumber.position.set(0, 0.88, -0.12);
+      roofNumber.position.set(0, 1.06, -0.12);
       car.add(roofNumber);
 
       const stripe = new THREE.Mesh(new THREE.PlaneGeometry(0.34, 1.6), stickerMat.clone());
@@ -428,19 +455,6 @@
       stripe2.material = stripe.material.clone();
       stripe2.material.color = new THREE.Color(0xffffff);
       car.add(stripe2);
-
-      const sideLogoMat = stickerMat.clone();
-      sideLogoMat.map = makeLogoTexture();
-      sideLogoMat.transparent = true;
-      const sideLogoL = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.5), sideLogoMat);
-      sideLogoL.position.set(-0.7, 0.54, -0.78);
-      sideLogoL.rotation.y = Math.PI / 2;
-      car.add(sideLogoL);
-
-      const sideLogoR = sideLogoL.clone();
-      sideLogoR.position.x = 0.7;
-      sideLogoR.rotation.y = -Math.PI / 2;
-      car.add(sideLogoR);
 
       const scratchMat = stickerMat.clone();
       scratchMat.map = makeScratchTexture();
