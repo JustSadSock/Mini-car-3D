@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport"
+        content="width=device-width, height=device-height, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>Mini Car 3D (single file)</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0f16;
+      touch-action: none;          /* no scroll/zoom */
+      overscroll-behavior: none;   /* stop bounce */
+      -webkit-user-select: none;
+      user-select: none;
+    }
+    #wrap {
+      position: fixed;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      touch-action: none;
+    }
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+      touch-action: none;
+    }
+
+    /* Minimal UI */
+    #hud {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      color: rgba(255,255,255,0.9);
+    }
+    #hint {
+      position: absolute;
+      top: env(safe-area-inset-top, 10px);
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 8px 10px;
+      border-radius: 12px;
+      background: rgba(0,0,0,0.28);
+      backdrop-filter: blur(8px);
+      font-size: 14px;
+      line-height: 1.2;
+      text-align: center;
+      pointer-events: none;
+      max-width: min(92vw, 420px);
+    }
+
+    /* One joystick = minimum buttons */
+    #joy {
+      position: absolute;
+      bottom: calc(env(safe-area-inset-bottom, 0px) + 22px);
+      left: 50%;
+      transform: translateX(-50%);
+      width: 150px;
+      height: 150px;
+      pointer-events: auto; /* only this accepts input */
+      touch-action: none;
+    }
+    #joyBase {
+      position: absolute;
+      inset: 0;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.12);
+      backdrop-filter: blur(10px);
+    }
+    #joyNub {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 62px;
+      height: 62px;
+      transform: translate(-50%, -50%);
+      border-radius: 999px;
+      background: rgba(255,255,255,0.14);
+      border: 1px solid rgba(255,255,255,0.18);
+      box-shadow: 0 10px 22px rgba(0,0,0,0.35);
+    }
+
+    #tiny {
+      position: absolute;
+      right: 12px;
+      bottom: calc(env(safe-area-inset-bottom, 0px) + 12px);
+      padding: 6px 8px;
+      border-radius: 10px;
+      background: rgba(0,0,0,0.22);
+      font-size: 12px;
+      opacity: 0.8;
+      pointer-events: none;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="wrap"></div>
+
+  <div id="hud">
+    <div id="hint">
+      Двигай джойстик: вверх = газ, вниз = назад, влево/вправо = поворот.<br>
+      (На ПК: WASD / стрелки)
+    </div>
+
+    <div id="joy" aria-label="joystick">
+      <div id="joyBase"></div>
+      <div id="joyNub"></div>
+    </div>
+
+    <div id="tiny">3D • one-file • no zoom</div>
+  </div>
+
+  <script type="module">
+    import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
+
+    // --- Hard stop for iOS pinch / double-tap zoom antics ---
+    document.addEventListener("gesturestart", (e) => e.preventDefault(), { passive: false });
+    document.addEventListener("gesturechange", (e) => e.preventDefault(), { passive: false });
+    document.addEventListener("gestureend", (e) => e.preventDefault(), { passive: false });
+    ["touchstart","touchmove","touchend"].forEach(evt => {
+      document.addEventListener(evt, (e) => e.preventDefault(), { passive: false });
+    });
+
+    const wrap = document.getElementById("wrap");
+
+    // --- Renderer ---
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setClearColor(0x0b0f16, 1);
+    wrap.appendChild(renderer.domElement);
+
+    // --- Scene / Camera ---
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.Fog(0x0b0f16, 35, 140);
+
+    const camera = new THREE.PerspectiveCamera(
+      60,
+      window.innerWidth / window.innerHeight,
+      0.1,
+      400
+    );
+
+    // Lights (simple + cheap)
+    const hemi = new THREE.HemisphereLight(0xdfe9ff, 0x1a2433, 0.9);
+    scene.add(hemi);
+
+    const sun = new THREE.DirectionalLight(0xffffff, 0.9);
+    sun.position.set(12, 18, 10);
+    scene.add(sun);
+
+    // --- Ground: empty map ---
+    const groundGeo = new THREE.PlaneGeometry(220, 220, 1, 1);
+    const groundMat = new THREE.MeshStandardMaterial({
+      color: 0x232a35,
+      roughness: 1.0,
+      metalness: 0.0
+    });
+    const ground = new THREE.Mesh(groundGeo, groundMat);
+    ground.rotation.x = -Math.PI / 2;
+    ground.position.y = 0;
+    scene.add(ground);
+
+    const grid = new THREE.GridHelper(220, 44, 0x3a4454, 0x2a3342);
+    grid.material.transparent = true;
+    grid.material.opacity = 0.25;
+    grid.position.y = 0.01;
+    scene.add(grid);
+
+    // --- Car (simple geometry, no drama) ---
+    function makeCar() {
+      const car = new THREE.Group();
+
+      const bodyMat = new THREE.MeshStandardMaterial({ color: 0xff3d3d, roughness: 0.6, metalness: 0.1 });
+      const cabinMat = new THREE.MeshStandardMaterial({ color: 0x101419, roughness: 0.35, metalness: 0.0 });
+      const wheelMat = new THREE.MeshStandardMaterial({ color: 0x121212, roughness: 1.0, metalness: 0.0 });
+
+      const body = new THREE.Mesh(new THREE.BoxGeometry(1.35, 0.45, 2.4), bodyMat);
+      body.position.y = 0.42;
+      car.add(body);
+
+      const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.05, 0.42, 1.2), cabinMat);
+      cabin.position.set(0, 0.78, -0.1);
+      car.add(cabin);
+
+      const bumperMat = new THREE.MeshStandardMaterial({ color: 0xe0e6f0, roughness: 0.8, metalness: 0.2 });
+      const bumperF = new THREE.Mesh(new THREE.BoxGeometry(1.25, 0.18, 0.22), bumperMat);
+      bumperF.position.set(0, 0.26, 1.18);
+      car.add(bumperF);
+
+      const bumperB = new THREE.Mesh(new THREE.BoxGeometry(1.25, 0.18, 0.22), bumperMat);
+      bumperB.position.set(0, 0.26, -1.18);
+      car.add(bumperB);
+
+      const wheelGeo = new THREE.CylinderGeometry(0.22, 0.22, 0.18, 18);
+      function wheel(x, z) {
+        const w = new THREE.Mesh(wheelGeo, wheelMat);
+        w.rotation.z = Math.PI / 2;
+        w.position.set(x, 0.22, z);
+        return w;
+      }
+      car.add(wheel(-0.62, 0.82));
+      car.add(wheel( 0.62, 0.82));
+      car.add(wheel(-0.62,-0.82));
+      car.add(wheel( 0.62,-0.82));
+
+      // A tiny "arrow" so you always know forward direction
+      const nose = new THREE.Mesh(
+        new THREE.ConeGeometry(0.18, 0.45, 18),
+        new THREE.MeshStandardMaterial({ color: 0xffd36b, roughness: 0.7, metalness: 0.0 })
+      );
+      nose.rotation.x = Math.PI / 2;
+      nose.position.set(0, 0.7, 1.05);
+      car.add(nose);
+
+      car.position.set(0, 0, 0);
+      return car;
+    }
+
+    const car = makeCar();
+    scene.add(car);
+
+    // --- Input: single joystick + keyboard fallback ---
+    const joy = document.getElementById("joy");
+    const nub = document.getElementById("joyNub");
+
+    let joyActive = false;
+    let joyPointerId = null;
+    let joyX = 0;  // -1..1
+    let joyY = 0;  // -1..1
+
+    function setNub(dx, dy) {
+      nub.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+    }
+
+    function handleJoyEvent(e) {
+      e.preventDefault();
+      const rect = joy.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+      const radius = rect.width * 0.36; // nub travel
+
+      const px = e.clientX;
+      const py = e.clientY;
+
+      let dx = px - cx;
+      let dy = py - cy;
+
+      const len = Math.hypot(dx, dy);
+      if (len > radius) {
+        dx = (dx / len) * radius;
+        dy = (dy / len) * radius;
+      }
+
+      setNub(dx, dy);
+
+      // Normalize to -1..1. Invert Y so up = positive throttle.
+      joyX = dx / radius;
+      joyY = -dy / radius;
+
+      // Deadzone (so it doesn't drift)
+      const dz = 0.08;
+      if (Math.abs(joyX) < dz) joyX = 0;
+      if (Math.abs(joyY) < dz) joyY = 0;
+    }
+
+    joy.addEventListener("pointerdown", (e) => {
+      joyActive = true;
+      joyPointerId = e.pointerId;
+      joy.setPointerCapture(joyPointerId);
+      handleJoyEvent(e);
+    }, { passive: false });
+
+    joy.addEventListener("pointermove", (e) => {
+      if (!joyActive || e.pointerId !== joyPointerId) return;
+      handleJoyEvent(e);
+    }, { passive: false });
+
+    function releaseJoy() {
+      joyActive = false;
+      joyPointerId = null;
+      joyX = 0;
+      joyY = 0;
+      setNub(0, 0);
+    }
+
+    joy.addEventListener("pointerup", (e) => {
+      if (e.pointerId !== joyPointerId) return;
+      releaseJoy();
+    }, { passive: false });
+
+    joy.addEventListener("pointercancel", releaseJoy, { passive: false });
+
+    // Keyboard fallback (PC)
+    const keys = new Set();
+    window.addEventListener("keydown", (e) => { keys.add(e.code); });
+    window.addEventListener("keyup", (e) => { keys.delete(e.code); });
+
+    function keyboardAxes() {
+      let x = 0, y = 0;
+      const left  = keys.has("ArrowLeft") || keys.has("KeyA");
+      const right = keys.has("ArrowRight")|| keys.has("KeyD");
+      const up    = keys.has("ArrowUp")   || keys.has("KeyW");
+      const down  = keys.has("ArrowDown") || keys.has("KeyS");
+      if (left) x -= 1;
+      if (right) x += 1;
+      if (up) y += 1;
+      if (down) y -= 1;
+      return { x, y };
+    }
+
+    // --- Simple driving ---
+    const state = {
+      speed: 0,
+      yaw: 0
+    };
+
+    const MAX_FWD = 12.0;
+    const MAX_REV = 6.0;
+    const ACCEL = 18.0;   // units/s^2
+    const DRAG = 6.0;     // slows down when no throttle
+    const TURN = 2.2;     // radians/sec at full steer (scaled by speed)
+
+    const bounds = 95; // map half-size clamp
+
+    // Camera follow (portrait-friendly)
+    const camOffset = new THREE.Vector3(0, 5.2, 8.2);
+    const camLookAhead = new THREE.Vector3(0, 1.0, 5.0);
+
+    function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+    function approach(current, target, maxDelta) {
+      const delta = target - current;
+      if (Math.abs(delta) <= maxDelta) return target;
+      return current + Math.sign(delta) * maxDelta;
+    }
+
+    let last = performance.now();
+    function tick(now) {
+      const dt = Math.min((now - last) / 1000, 0.033);
+      last = now;
+
+      // Prefer joystick; if idle, use keyboard.
+      let ax = joyX;
+      let ay = joyY;
+      if (!joyActive && ax === 0 && ay === 0) {
+        const k = keyboardAxes();
+        ax = k.x;
+        ay = k.y;
+      }
+
+      // Target speed from throttle (ay)
+      let targetSpeed = 0;
+      if (ay > 0) targetSpeed = ay * MAX_FWD;
+      else if (ay < 0) targetSpeed = ay * MAX_REV; // negative
+
+      // Accel towards target, otherwise drag
+      if (targetSpeed !== 0) {
+        state.speed = approach(state.speed, targetSpeed, ACCEL * dt);
+      } else {
+        state.speed = approach(state.speed, 0, DRAG * dt);
+      }
+
+      // Turning scales with speed (so you don't spin in place like a shopping cart)
+      const speedFactor = clamp(Math.abs(state.speed) / MAX_FWD, 0, 1);
+      const turnRate = ax * TURN * (0.35 + 0.65 * speedFactor);
+      state.yaw += turnRate * dt;
+
+      car.rotation.y = state.yaw;
+
+      // Move forward in car's local +Z
+      const forward = new THREE.Vector3(0, 0, 1).applyEuler(car.rotation);
+      car.position.addScaledVector(forward, state.speed * dt);
+
+      // Clamp to bounds (soft wall)
+      car.position.x = clamp(car.position.x, -bounds, bounds);
+      car.position.z = clamp(car.position.z, -bounds, bounds);
+      car.position.y = 0;
+
+      // Camera follow
+      const offset = camOffset.clone().applyEuler(car.rotation);
+      const desiredCam = car.position.clone().add(offset);
+      camera.position.lerp(desiredCam, 1 - Math.pow(0.001, dt)); // smooth
+
+      const look = camLookAhead.clone().applyEuler(car.rotation).add(car.position);
+      camera.lookAt(look);
+
+      renderer.render(scene, camera);
+      requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+
+    // Resize
+    function onResize() {
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+    }
+    window.addEventListener("resize", onResize);
+    window.addEventListener("orientationchange", onResize);
+    onResize();
+  </script>
+</body>
+</html>
