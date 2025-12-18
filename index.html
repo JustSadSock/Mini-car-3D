@@ -360,10 +360,10 @@
 
     function collectLightMaterials(root) {
       const headlights = findMaterials(root, (name) =>
-        name.includes("head") || name.includes("front") || name.includes("lamp")
+        name.includes("head") || name.includes("front") || name.includes("lamp") || name.includes("light")
       );
       const tailLights = findMaterials(root, (name) =>
-        name.includes("tail") || name.includes("rear") || name.includes("back") || name.includes("brake")
+        name.includes("tail") || name.includes("rear") || name.includes("back") || name.includes("brake") || name.includes("light")
       );
       if (headlights.length === 0 || tailLights.length === 0) {
         logCarStructure(root);
@@ -380,11 +380,27 @@
       const { headlights, tailLights } = collectLightMaterials(car);
       const bodyMaterials = collectBodyMaterials(car);
 
-      const headlightIntensities = headlights.map((m) => m.emissiveIntensity ?? 1);
-      const tailLightIntensities = tailLights.map((m) => m.emissiveIntensity ?? 1);
+      const headlightIntensities = headlights.map((m) =>
+        typeof m.emissiveIntensity === "number" ? m.emissiveIntensity : 1.25
+      );
+      const tailLightIntensities = tailLights.map((m) =>
+        typeof m.emissiveIntensity === "number" ? m.emissiveIntensity : 0.8
+      );
+
+      const steeringRig = steeringPivots.map((pivot) => ({
+        pivot,
+        baseQuaternion: pivot.quaternion.clone(),
+      }));
+      const wheelRig = wheels.map((wheel) => ({
+        mesh: wheel,
+        baseQuaternion: wheel.quaternion.clone(),
+        angle: 0,
+      }));
 
       car.userData.wheelGroups = wheels;
       car.userData.steeringPivots = steeringPivots;
+      car.userData.wheelRig = wheelRig;
+      car.userData.steeringRig = steeringRig;
       car.userData.wheelRadius = radius;
       car.userData.lightsOn = true;
       car.userData.brakeActive = false;
@@ -493,12 +509,19 @@
         const currentYaw = player.mesh.rotation.y;
         const deltaYaw = ((player.target.yaw - currentYaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
         player.mesh.rotation.y = currentYaw + deltaYaw * follow;
+
         const rollDelta = (player.target.speed / (player.mesh.userData.wheelRadius || 1)) * dt;
-        player.mesh.userData.wheelGroups?.forEach((group) => {
-          group.rotation.x -= rollDelta;
+        const rollAxis = new THREE.Vector3(1, 0, 0);
+        const rollQuat = new THREE.Quaternion();
+        player.mesh.userData.wheelRig?.forEach((wheel) => {
+          wheel.angle += rollDelta;
+          rollQuat.setFromAxisAngle(rollAxis, wheel.angle);
+          wheel.mesh.quaternion.copy(wheel.baseQuaternion).multiply(rollQuat);
         });
-        player.mesh.userData.steeringPivots?.forEach((pivot) => {
-          pivot.rotation.y = player.target.steer || 0;
+
+        const steerQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), player.target.steer || 0);
+        player.mesh.userData.steeringRig?.forEach(({ pivot, baseQuaternion }) => {
+          pivot.quaternion.copy(steerQuat).multiply(baseQuaternion);
         });
         player.mesh.userData.brakeActive = Boolean(player.target.brake);
         player.mesh.userData.applyLights?.(player.mesh.userData.brakeActive);
@@ -792,8 +815,9 @@
 
       const visualSteer = -clamp(ax, -1, 1) * (Math.PI / 7);
       state.steer = visualSteer;
-      car.userData.steeringPivots?.forEach((pivot) => {
-        pivot.rotation.y = visualSteer;
+      const steerQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), visualSteer);
+      car.userData.steeringRig?.forEach(({ pivot, baseQuaternion }) => {
+        pivot.quaternion.copy(steerQuat).multiply(baseQuaternion);
       });
 
       car.rotation.y = state.yaw;
@@ -803,8 +827,12 @@
       car.position.addScaledVector(forward, state.speed * dt);
 
       const rollDelta = (state.speed / (car.userData.wheelRadius || 1)) * dt;
-      car.userData.wheelGroups?.forEach((group) => {
-        group.rotation.x -= rollDelta;
+      const rollAxis = new THREE.Vector3(1, 0, 0);
+      const rollQuat = new THREE.Quaternion();
+      car.userData.wheelRig?.forEach((wheel) => {
+        wheel.angle += rollDelta;
+        rollQuat.setFromAxisAngle(rollAxis, wheel.angle);
+        wheel.mesh.quaternion.copy(wheel.baseQuaternion).multiply(rollQuat);
       });
 
       // Clamp to bounds (soft wall)
