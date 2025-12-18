@@ -48,7 +48,10 @@ const server = http.createServer((req, res) => {
 
   const resolved = resolveFile(req.url === '/' ? '/index.html' : req.url);
   if (!resolved || !fs.existsSync(resolved)) {
-    res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.writeHead(404, {
+      'Content-Type': 'text/plain; charset=utf-8',
+      'Access-Control-Allow-Origin': '*'
+    });
     res.end('Not found');
     return;
   }
@@ -57,7 +60,8 @@ const server = http.createServer((req, res) => {
   const mime = MIME[ext] || 'application/octet-stream';
   res.writeHead(200, {
     'Content-Type': mime,
-    'Cache-Control': ext === '.html' ? 'no-cache' : 'public, max-age=3600'
+    'Cache-Control': ext === '.html' ? 'no-cache' : 'public, max-age=3600',
+    'Access-Control-Allow-Origin': '*'
   });
   fs.createReadStream(resolved).pipe(res);
 });
