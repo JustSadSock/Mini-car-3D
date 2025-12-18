@@ -533,9 +533,9 @@
     let inputX = 0;
     let inputY = 0;
 
-    const MAX_FWD = 12.0;
-    const MAX_REV = 6.0;
-    const ACCEL = 18.0;   // units/s^2
+    const MAX_FWD = 14.0;
+    const MAX_REV = 7.0;
+    const ACCEL = 26.0;   // units/s^2
     const DRAG = 6.0;     // slows down when no throttle
     const TURN = 2.2;     // radians/sec at full steer (scaled by speed)
 
@@ -613,6 +613,8 @@
       const desiredCam = car.position.clone().add(offset);
       camera.position.lerp(desiredCam, 1 - Math.pow(0.001, dt)); // smooth
 
+      // Reset up before lookAt so roll never leaks into the base orientation.
+      camera.up.set(0, 1, 0);
       const look = camLookAhead.clone().applyEuler(car.rotation).add(car.position);
       camera.lookAt(look);
 
