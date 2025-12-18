@@ -37,7 +37,11 @@ const MIME = {
 
 const server = http.createServer((req, res) => {
   if (req.url === '/ping') {
-    res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-cache' });
+    res.writeHead(200, {
+      'Content-Type': 'text/plain; charset=utf-8',
+      'Cache-Control': 'no-cache',
+      'Access-Control-Allow-Origin': '*'
+    });
     res.end('pong');
     return;
   }
@@ -75,6 +79,8 @@ function snapshotState(state) {
     p: state?.p || [0, 0, 0],
     y: state?.y || 0,
     s: state?.s || 0,
+    st: state?.st || 0,
+    b: Boolean(state?.b),
     t: Date.now()
   };
 }

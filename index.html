@@ -527,7 +527,7 @@
       const ghost = makeCar();
       colorizeCar(ghost, hashHue(id));
       ghost.userData.isRemote = true;
-      ghost.userData.tailLights?.forEach(({ light }) => { light.intensity = 0.8; });
+      ghost.userData.tailLights?.forEach(({ light }) => { light.intensity = 0.12; });
       scene.add(ghost);
       remotePlayers.set(id, { mesh: ghost, target: null });
       applyRemoteState(id, snapshot || { p: [0, 0, 0], y: 0, s: 0 });
@@ -551,6 +551,8 @@
         position: new THREE.Vector3(state.p?.[0] || 0, state.p?.[1] || 0, state.p?.[2] || 0),
         yaw: state.y || 0,
         speed: state.s || 0,
+        steer: state.st || 0,
+        brake: Boolean(state.b),
         received: performance.now()
       };
       player.target = target;
@@ -568,6 +570,20 @@
         player.mesh.userData.wheelGroups?.forEach((group) => {
           group.rotation.x -= rollDelta;
         });
+        player.mesh.userData.steeringPivots?.forEach((pivot) => {
+          pivot.rotation.y = player.target.steer || 0;
+        });
+        if (player.mesh.userData.tailLights) {
+          const active = Boolean(player.target.brake);
+          player.mesh.userData.tailLights.forEach(({ light, lens, halo, aura }) => {
+            light.intensity = active ? 1.85 : 0.12;
+            lens.material.emissiveIntensity = active ? 1.9 : 0.38;
+            halo.material.opacity = active ? 0.95 : 0.32;
+            halo.scale.setScalar(active ? 0.52 : 0.38);
+            aura.material.opacity = active ? 0.55 : 0.0;
+            aura.scale.setScalar(active ? 0.88 : 0.72);
+          });
+        }
       }
     }
 
@@ -620,7 +636,9 @@
         state: {
           p: [Number(car.position.x.toFixed(3)), Number(car.position.y.toFixed(3)), Number(car.position.z.toFixed(3))],
           y: Number(state.yaw.toFixed(4)),
-          s: Number(state.speed.toFixed(3))
+          s: Number(state.speed.toFixed(3)),
+          st: Number(state.steer.toFixed(4)),
+          b: Boolean(state.brakeActive)
         }
       };
       NETWORK.socket.send(JSON.stringify(payload));
@@ -782,7 +800,9 @@
     // --- Simple driving ---
     const state = {
       speed: 0,
-      yaw: 0
+      yaw: 0,
+      steer: 0,
+      brakeActive: false
     };
 
     let inputX = 0;
@@ -853,6 +873,7 @@
       state.yaw += turnRate * dt;
 
       const visualSteer = -clamp(ax, -1, 1) * (Math.PI / 7);
+      state.steer = visualSteer;
       car.userData.steeringPivots?.forEach((pivot) => {
         pivot.rotation.y = visualSteer;
       });
@@ -889,24 +910,24 @@
       rollQuat.setFromAxisAngle(zAxis, camRoll);
       camera.quaternion.multiply(rollQuat);
 
+      const braking = state.speed > 0.2 && targetSpeed < state.speed - 0.12;
+      const reversing = state.speed < -0.15;
+      state.brakeActive = braking || reversing;
+      if (car.userData.tailLights) {
+        car.userData.tailLights.forEach(({ light, lens, halo, aura }) => {
+          light.intensity = state.brakeActive ? 1.85 : 0.12;
+          lens.material.emissiveIntensity = state.brakeActive ? 1.9 : 0.38;
+          halo.material.opacity = state.brakeActive ? 0.95 : 0.32;
+          halo.scale.setScalar(state.brakeActive ? 0.52 : 0.38);
+          aura.material.opacity = state.brakeActive ? 0.55 : 0.0;
+          aura.scale.setScalar(state.brakeActive ? 0.88 : 0.72);
+        });
+      }
+
       updateRemotePlayers(dt);
 
       if (NETWORK.mode === "online") {
         sendStateSnapshot();
-      }
-
-      if (car.userData.tailLights) {
-        const braking = state.speed > 0.2 && targetSpeed < state.speed - 0.12;
-        const reversing = state.speed < -0.15;
-        const active = braking || reversing;
-        car.userData.tailLights.forEach(({ light, lens, halo, aura }) => {
-          light.intensity = active ? 1.85 : 0.12;
-          lens.material.emissiveIntensity = active ? 1.9 : 0.38;
-          halo.material.opacity = active ? 0.95 : 0.32;
-          halo.scale.setScalar(active ? 0.52 : 0.38);
-          aura.material.opacity = active ? 0.55 : 0.0;
-          aura.scale.setScalar(active ? 0.88 : 0.72);
-        });
       }
 
       renderer.render(scene, camera);
