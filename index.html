@@ -309,6 +309,8 @@
       const wheelGeo = new THREE.CylinderGeometry(0.22, 0.22, 0.18, 18);
       const hubGeo = new THREE.CylinderGeometry(0.08, 0.08, 0.2, 14);
       const axleGeo = new THREE.CylinderGeometry(0.035, 0.035, 1.35, 10);
+      const WHEEL_RADIUS = 0.22;
+      car.userData.wheels = [];
       function axleAt(z) {
         const axle = new THREE.Mesh(axleGeo, hubMat);
         axle.rotation.z = Math.PI / 2;
@@ -317,20 +319,25 @@
       }
       car.add(axleAt(0.82));
       car.add(axleAt(-0.82));
-      function wheelWithHub(x, z) {
-        const group = new THREE.Group();
+      function wheelWithHub(x, z, steerable = false) {
+        const steering = new THREE.Group();
+        steering.position.set(x, 0.22, z);
+
+        const spin = new THREE.Group();
+        spin.rotation.z = Math.PI / 2;
+
         const w = new THREE.Mesh(wheelGeo, wheelMat);
-        w.rotation.z = Math.PI / 2;
-        w.position.set(x, 0.22, z);
         const hub = new THREE.Mesh(hubGeo, hubMat);
-        hub.rotation.z = Math.PI / 2;
-        hub.position.set(x, 0.22, z);
-        group.add(w);
-        group.add(hub);
-        return group;
+
+        spin.add(w);
+        spin.add(hub);
+        steering.add(spin);
+
+        car.userData.wheels.push({ spin, steering, steerable, radius: WHEEL_RADIUS });
+        return steering;
       }
-      car.add(wheelWithHub(-0.62, 0.82));
-      car.add(wheelWithHub( 0.62, 0.82));
+      car.add(wheelWithHub(-0.62, 0.82, true));
+      car.add(wheelWithHub( 0.62, 0.82, true));
       car.add(wheelWithHub(-0.62,-0.82));
       car.add(wheelWithHub( 0.62,-0.82));
 
@@ -621,6 +628,15 @@
       // Move forward in car's local +Z
       const forward = new THREE.Vector3(0, 0, 1).applyEuler(car.rotation);
       car.position.addScaledVector(forward, state.speed * dt);
+
+      if (car.userData.wheels) {
+        const spinDelta = (state.speed * dt) / (car.userData.wheels[0]?.radius || 1);
+        const steerAngle = steer * 0.58 * speedFactor;
+        car.userData.wheels.forEach(({ spin, steering, steerable }) => {
+          spin.rotation.x = (spin.rotation.x + spinDelta) % (Math.PI * 2);
+          steering.rotation.y = steerable ? steerAngle : 0;
+        });
+      }
 
       // Clamp to bounds (soft wall)
       car.position.x = clamp(car.position.x, -bounds, bounds);
