@@ -6,7 +6,7 @@
         content="width=device-width, height=device-height, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <title>Mini Car 3D (single file)</title>
+  <title>Mini Car 3D</title>
   <style>
     html, body {
       margin: 0;
@@ -222,6 +222,58 @@
         return tex;
       }
 
+      function makeLogoTexture() {
+        const canvas = document.createElement('canvas');
+        canvas.width = canvas.height = 256;
+        const ctx = canvas.getContext('2d');
+
+        ctx.fillStyle = '#0f1624';
+        ctx.fillRect(0, 0, 256, 256);
+        ctx.fillStyle = '#4fb7ff';
+        ctx.strokeStyle = '#ffd36b';
+        ctx.lineWidth = 10;
+        ctx.beginPath();
+        ctx.arc(128, 128, 86, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = '#0f1624';
+        ctx.font = 'bold 68px Inter, system-ui';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('MINI', 128, 118);
+        ctx.fillText('GO', 128, 172);
+
+        const tex = new THREE.CanvasTexture(canvas);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.anisotropy = 4;
+        return tex;
+      }
+
+      function makeScratchTexture() {
+        const canvas = document.createElement('canvas');
+        canvas.width = canvas.height = 256;
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, 256, 256);
+        ctx.lineWidth = 4;
+        ctx.lineCap = 'round';
+        ctx.strokeStyle = 'rgba(28,35,49,0.65)';
+        for (let i = 0; i < 8; i++) {
+          const sx = Math.random() * 90 + 20;
+          const sy = Math.random() * 180 + 28;
+          const ex = sx + Math.random() * 120 + 40;
+          const ey = sy + (Math.random() * 30 - 15);
+          ctx.beginPath();
+          ctx.moveTo(sx, sy);
+          ctx.lineTo(ex, ey);
+          ctx.stroke();
+        }
+        const tex = new THREE.CanvasTexture(canvas);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.anisotropy = 4;
+        return tex;
+      }
+
       const bodyMat = new THREE.MeshStandardMaterial({
         color: 0xff5e6d,
         roughness: 0.45,
@@ -352,6 +404,19 @@
         normalScale: new THREE.Vector2(0.2, 0.2)
       });
 
+      const hoodStripe = new THREE.Mesh(new THREE.PlaneGeometry(0.86, 0.52), stickerMat.clone());
+      hoodStripe.material.color.set(0xff2b3a);
+      hoodStripe.rotation.x = -Math.PI / 2;
+      hoodStripe.position.set(0, 0.64, 0.96);
+      car.add(hoodStripe);
+
+      const roofNumber = new THREE.Mesh(new THREE.PlaneGeometry(0.92, 0.72), stickerMat.clone());
+      roofNumber.material.map = makeNumberTexture(12);
+      roofNumber.material.transparent = true;
+      roofNumber.rotation.x = -Math.PI / 2;
+      roofNumber.position.set(0, 0.88, -0.12);
+      car.add(roofNumber);
+
       const stripe = new THREE.Mesh(new THREE.PlaneGeometry(0.34, 1.6), stickerMat.clone());
       stripe.material.color.set(0xffd36b);
       stripe.rotation.x = -Math.PI / 2;
@@ -363,6 +428,39 @@
       stripe2.material = stripe.material.clone();
       stripe2.material.color = new THREE.Color(0xffffff);
       car.add(stripe2);
+
+      const sideLogoMat = stickerMat.clone();
+      sideLogoMat.map = makeLogoTexture();
+      sideLogoMat.transparent = true;
+      const sideLogoL = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.5), sideLogoMat);
+      sideLogoL.position.set(-0.7, 0.54, -0.78);
+      sideLogoL.rotation.y = Math.PI / 2;
+      car.add(sideLogoL);
+
+      const sideLogoR = sideLogoL.clone();
+      sideLogoR.position.x = 0.7;
+      sideLogoR.rotation.y = -Math.PI / 2;
+      car.add(sideLogoR);
+
+      const scratchMat = stickerMat.clone();
+      scratchMat.map = makeScratchTexture();
+      scratchMat.transparent = true;
+      const scratchL = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.38), scratchMat);
+      scratchL.position.set(-0.71, 0.36, -0.12);
+      scratchL.rotation.y = Math.PI / 2;
+      car.add(scratchL);
+
+      const scratchR = scratchL.clone();
+      scratchR.position.x = 0.71;
+      scratchR.rotation.y = -Math.PI / 2;
+      car.add(scratchR);
+
+      const hoodBadge = new THREE.Mesh(new THREE.PlaneGeometry(0.44, 0.44), stickerMat.clone());
+      hoodBadge.material.map = makeLogoTexture();
+      hoodBadge.material.transparent = true;
+      hoodBadge.rotation.x = -Math.PI / 2;
+      hoodBadge.position.set(0, 0.72, 0.28);
+      car.add(hoodBadge);
 
       const doorNumGeo = new THREE.PlaneGeometry(0.64, 0.46);
       const doorNumMat = stickerMat.clone();
