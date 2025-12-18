@@ -159,7 +159,11 @@
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setClearColor(0x0b0f16, 1);
     renderer.outputEncoding = THREE.sRGBEncoding;
+    renderer.useLegacyLights = false;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.18;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     wrap.appendChild(renderer.domElement);
 
     // --- Scene / Camera ---
@@ -191,6 +195,7 @@
     const ground = new THREE.Mesh(groundGeo, groundMat);
     ground.rotation.x = -Math.PI / 2;
     ground.position.y = 0;
+    ground.receiveShadow = true;
     scene.add(ground);
 
     const grid = new THREE.GridHelper(220, 44, 0x3a4454, 0x2a3342);
@@ -240,6 +245,126 @@
       tex.magFilter = THREE.LinearFilter;
       tex.anisotropy = 4;
       return tex;
+    }
+
+    function makeHeadlightCookieTexture(size = 256) {
+      const canvas = document.createElement("canvas");
+      canvas.width = canvas.height = size;
+      const ctx = canvas.getContext("2d");
+
+      ctx.fillStyle = "black";
+      ctx.fillRect(0, 0, size, size);
+
+      const cx = size * 0.5;
+      const cy = size * 0.6;
+      const radius = size * 0.48;
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.scale(1.08, 0.82);
+      const glow = ctx.createRadialGradient(0, 0, radius * 0.1, 0, 0, radius);
+      glow.addColorStop(0.0, "rgba(255,255,255,0.98)");
+      glow.addColorStop(0.35, "rgba(255,255,255,0.75)");
+      glow.addColorStop(0.7, "rgba(255,255,255,0.35)");
+      glow.addColorStop(1.0, "rgba(255,255,255,0.0)");
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(0, 0, radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      ctx.globalCompositeOperation = "destination-out";
+      const sliceHeight = size * 0.32;
+      const cut = ctx.createLinearGradient(0, 0, 0, sliceHeight);
+      cut.addColorStop(0, "rgba(0,0,0,1)");
+      cut.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.fillStyle = cut;
+      ctx.fillRect(0, 0, size, sliceHeight);
+      ctx.globalCompositeOperation = "source-over";
+
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.colorSpace = THREE.LinearSRGBColorSpace;
+      tex.minFilter = THREE.LinearFilter;
+      tex.magFilter = THREE.LinearFilter;
+      tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+      tex.needsUpdate = true;
+      return tex;
+    }
+
+    function enableCarShadows(car) {
+      car.traverse((child) => {
+        if (!child.isMesh) return;
+        child.castShadow = true;
+        child.receiveShadow = true;
+      });
+    }
+
+    function attachHeadlights(car) {
+      const cookie = makeHeadlightCookieTexture();
+      const box = new THREE.Box3().setFromObject(car);
+      const size = box.getSize(new THREE.Vector3());
+      const center = box.getCenter(new THREE.Vector3());
+
+      const headlightHeight = box.min.y + size.y * 0.4;
+      const forward = box.max.z - size.z * 0.08;
+      const lateral = size.x * 0.22;
+      const targetDistance = box.max.z + size.z * 0.45;
+
+      const target = new THREE.Object3D();
+      target.position.set(center.x, headlightHeight * 0.98, targetDistance);
+      car.add(target);
+
+      const createLight = () => {
+        const light = new THREE.SpotLight(0xffffff);
+        light.angle = THREE.MathUtils.degToRad(15);
+        light.penumbra = 0.5;
+        light.distance = 48;
+        light.decay = 2;
+        light.power = 1600;
+        light.map = cookie;
+        light.castShadow = false;
+        light.shadow.mapSize.set(512, 512);
+        light.shadow.bias = -0.00018;
+        light.target = target;
+        light.visible = true;
+        return light;
+      };
+
+      const left = createLight();
+      left.position.set(center.x - lateral, headlightHeight, forward);
+      left.castShadow = true;
+      car.add(left);
+
+      const right = createLight();
+      right.position.set(center.x + lateral, headlightHeight, forward);
+      right.castShadow = false;
+      car.add(right);
+
+      const beams = [];
+      const beamLength = (light) => light.distance * 0.92;
+      const beamMaterial = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0.07,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      });
+
+      [left, right].forEach((light) => {
+        const length = beamLength(light);
+        const radius = Math.tan(light.angle) * length;
+        const geo = new THREE.ConeGeometry(radius, length, 12, 1, true);
+        const beam = new THREE.Mesh(geo, beamMaterial.clone());
+        beam.userData.baseOpacity = beam.material.opacity;
+        beam.rotation.x = Math.PI / 2;
+        beam.position.copy(light.position);
+        beam.translateZ(length * 0.5);
+        beam.renderOrder = -1;
+        car.add(beam);
+        beams.push(beam);
+      });
+
+      return { left, right, target, beams };
     }
 
     // --- Car (GLB model) ---
@@ -483,6 +608,8 @@
       const { wheelRig, radius } = categorizeWheels(car);
       const { headlights, tailLights } = collectLightMaterials(car);
       const bodyMaterials = collectBodyMaterials(car);
+      enableCarShadows(car);
+      const headlightRig = attachHeadlights(car);
 
       const headlightIntensities = headlights.map((m) =>
         typeof m.emissiveIntensity === "number" ? m.emissiveIntensity : 1.25
@@ -490,6 +617,8 @@
       const tailLightIntensities = tailLights.map((m) =>
         typeof m.emissiveIntensity === "number" ? m.emissiveIntensity : 0.8
       );
+
+      const HEADLIGHT_POWER = 1600;
 
       car.userData.wheelRig = wheelRig;
       car.userData.wheelRadius = radius;
@@ -521,6 +650,23 @@
           }
           mat.visible = car.userData.lightsOn || brake;
         });
+
+        if (headlightRig) {
+          const on = car.userData.lightsOn;
+          [headlightRig.left, headlightRig.right].forEach((light) => {
+            if (!light) return;
+            light.visible = on;
+            light.power = on ? HEADLIGHT_POWER : 0;
+          });
+          if (headlightRig.target) headlightRig.target.visible = on;
+          headlightRig.beams?.forEach((beam) => {
+            beam.visible = on;
+            if (beam.material) {
+              const base = typeof beam.userData.baseOpacity === "number" ? beam.userData.baseOpacity : beam.material.opacity;
+              beam.material.opacity = on ? base : 0;
+            }
+          });
+        }
 
       };
 
