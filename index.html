@@ -173,6 +173,29 @@
       return tex;
     }
 
+    function makeRadialGlowTexture(size = 256, color = "#ff2b3a") {
+      const canvas = document.createElement("canvas");
+      canvas.width = canvas.height = size;
+      const ctx = canvas.getContext("2d");
+      const radius = size / 2;
+      const grad = ctx.createRadialGradient(radius, radius, radius * 0.1, radius, radius, radius * 0.95);
+      const col = new THREE.Color(color);
+      const solid = `rgba(${Math.round(col.r * 255)},${Math.round(col.g * 255)},${Math.round(col.b * 255)},`;
+      grad.addColorStop(0, `${solid}0.9)`);
+      grad.addColorStop(0.35, `${solid}0.65)`);
+      grad.addColorStop(0.75, `${solid}0.22)`);
+      grad.addColorStop(1, `${solid}0)`);
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, size, size);
+
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.minFilter = THREE.LinearMipMapLinearFilter;
+      tex.magFilter = THREE.LinearFilter;
+      tex.anisotropy = 4;
+      return tex;
+    }
+
     // --- Car (simple geometry, no drama) ---
     function makeCar() {
       const car = new THREE.Group();
@@ -357,15 +380,28 @@
 
       const brakeLights = [];
       function makeTailLight(x) {
-        const lens = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.12, 0.04), tailLightMat.clone());
-        lens.position.set(x, 0.5, -1.22);
-        const light = new THREE.SpotLight(0xff2738, 0.32, 8.5, Math.PI / 7, 0.65, 2.1);
-        light.position.set(x, 0.55, -1.1);
-        light.target.position.set(x * 0.85, 0.42, -6.2);
+        const lens = new THREE.Mesh(new THREE.CircleGeometry(0.095, 22), tailLightMat.clone());
+        lens.position.set(x, 0.44, -1.215);
+        lens.rotation.y = Math.PI;
+
+        const halo = new THREE.Sprite(new THREE.SpriteMaterial({
+          map: makeRadialGlowTexture(256, "#ff2738"),
+          transparent: true,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+          opacity: 0.8
+        }));
+        halo.scale.set(0.42, 0.42, 0.42);
+        halo.position.copy(lens.position).add(new THREE.Vector3(0, 0, -0.02));
+
+        const light = new THREE.SpotLight(0xff2738, 0.32, 8.5, Math.PI / 7.2, 0.52, 1.65);
+        light.position.set(x, 0.46, -1.06);
+        light.target.position.set(x * 0.85, 0.44, -6.4);
         car.add(light.target);
         car.add(light);
         car.add(lens);
-        brakeLights.push({ light, lens });
+        car.add(halo);
+        brakeLights.push({ light, lens, halo });
       }
 
       makeTailLight(-0.36);
@@ -537,7 +573,8 @@
 
       // Turning scales with speed (so you don't spin in place like a shopping cart)
       const speedFactor = clamp(Math.abs(state.speed) / MAX_FWD, 0, 1);
-      const turnRate = -ax * TURN * (0.35 + 0.65 * speedFactor);
+      const steer = state.speed < -0.05 ? -ax : ax;
+      const turnRate = -steer * TURN * (0.35 + 0.65 * speedFactor);
       state.yaw += turnRate * dt;
 
       car.rotation.y = state.yaw;
@@ -563,9 +600,11 @@
         const braking = state.speed > 0.2 && targetSpeed < state.speed - 0.12;
         const reversing = state.speed < -0.15;
         const active = braking || reversing;
-        car.userData.tailLights.forEach(({ light, lens }) => {
-          light.intensity = active ? 1.85 : 0.15;
-          lens.material.emissiveIntensity = active ? 1.8 : 0.42;
+        car.userData.tailLights.forEach(({ light, lens, halo }) => {
+          light.intensity = active ? 1.85 : 0.12;
+          lens.material.emissiveIntensity = active ? 1.9 : 0.38;
+          halo.material.opacity = active ? 0.95 : 0.32;
+          halo.scale.setScalar(active ? 0.52 : 0.38);
         });
       }
 
