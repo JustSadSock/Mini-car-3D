@@ -488,6 +488,29 @@
       return positions;
     }
 
+    const glowTextureCache = new Map();
+    function getGlowTexture(colorHex) {
+      const key = colorHex.toString(16);
+      if (glowTextureCache.has(key)) return glowTextureCache.get(key);
+      const size = 128;
+      const canvas = document.createElement("canvas");
+      canvas.width = canvas.height = size;
+      const ctx = canvas.getContext("2d");
+      const color = new THREE.Color(colorHex);
+      const rgba = (a) => `rgba(${(color.r * 255).toFixed(0)}, ${(color.g * 255).toFixed(0)}, ${(color.b * 255).toFixed(0)}, ${a})`;
+      const grd = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+      grd.addColorStop(0, rgba(0.85));
+      grd.addColorStop(0.45, rgba(0.45));
+      grd.addColorStop(1, rgba(0));
+      ctx.fillStyle = grd;
+      ctx.fillRect(0, 0, size, size);
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.encoding = THREE.sRGBEncoding;
+      tex.needsUpdate = true;
+      glowTextureCache.set(key, tex);
+      return tex;
+    }
+
     function buildLightRig(car, headlights, tailLights) {
       car.updateMatrixWorld(true);
       const headMeshes = findMeshesUsingMaterials(car, headlights);
@@ -497,7 +520,7 @@
       const tailPositions = computeLightPositions(tailMeshes, car, false);
 
       const headBeams = headPositions.slice(0, 2).map((pos) => {
-        const light = new THREE.SpotLight(0xffffff, 2.8, 55, Math.PI / 7, 0.35, 1.25);
+        const light = new THREE.SpotLight(0xffffff, 3.4, 60, Math.PI / 6.5, 0.42, 1.4);
         light.position.copy(pos.clone().add(new THREE.Vector3(0, 0.18, 0.2)));
         const target = new THREE.Object3D();
         target.position.copy(pos.clone().add(new THREE.Vector3(0, -0.05, 10)));
@@ -508,35 +531,37 @@
         const glow = new THREE.Sprite(
           new THREE.SpriteMaterial({
             color: 0xffffff,
+            map: getGlowTexture(0xffffff),
             transparent: true,
-            opacity: 0.38,
+            opacity: 0.9,
             blending: THREE.AdditiveBlending,
             depthWrite: false
           })
         );
         glow.position.copy(pos.clone().add(new THREE.Vector3(0, 0.08, 0.32)));
-        glow.scale.set(0.85, 0.85, 0.85);
+        glow.scale.set(1.4, 1.4, 1.4);
         car.add(glow);
 
         return { light, target, glow, baseIntensity: light.intensity };
       });
 
       const tailGlows = tailPositions.slice(0, 2).map((pos) => {
-        const light = new THREE.PointLight(0xff2b2b, 1.4, 12, 2.2);
+        const light = new THREE.PointLight(0xff2b2b, 2.0, 10, 2.4);
         light.position.copy(pos.clone().add(new THREE.Vector3(0, 0.08, -0.12)));
         car.add(light);
 
         const aura = new THREE.Sprite(
           new THREE.SpriteMaterial({
             color: 0xff3636,
+            map: getGlowTexture(0xff2b2b),
             transparent: true,
-            opacity: 0.55,
+            opacity: 0.8,
             blending: THREE.AdditiveBlending,
             depthWrite: false
           })
         );
         aura.position.copy(pos.clone().add(new THREE.Vector3(0, 0.06, -0.08)));
-        aura.scale.set(0.75, 0.75, 0.75);
+        aura.scale.set(1.05, 1.05, 1.05);
         car.add(aura);
 
         return { light, aura, baseIntensity: light.intensity };
@@ -627,7 +652,7 @@
           if (target) target.visible = on;
           if (glow && glow.material) {
             glow.visible = on;
-            glow.material.opacity = on ? 0.38 : 0.0;
+            glow.material.opacity = on ? 0.9 : 0.0;
           }
         });
 
@@ -638,7 +663,7 @@
           light.visible = on;
           if (aura && aura.material) {
             aura.visible = on;
-            aura.material.opacity = on ? (brake ? 0.7 : 0.55) : 0.0;
+            aura.material.opacity = on ? (brake ? 0.9 : 0.75) : 0.0;
           }
         });
       };
