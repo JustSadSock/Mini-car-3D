@@ -6,7 +6,7 @@
         content="width=device-width, height=device-height, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <title>Mini Car 3D (single file)</title>
+  <title>Mini Car 3D</title>
   <style>
     html, body {
       margin: 0;
@@ -222,6 +222,58 @@
         return tex;
       }
 
+      function makeLogoTexture() {
+        const canvas = document.createElement('canvas');
+        canvas.width = canvas.height = 256;
+        const ctx = canvas.getContext('2d');
+
+        ctx.fillStyle = '#0f1624';
+        ctx.fillRect(0, 0, 256, 256);
+        ctx.fillStyle = '#4fb7ff';
+        ctx.strokeStyle = '#ffd36b';
+        ctx.lineWidth = 10;
+        ctx.beginPath();
+        ctx.arc(128, 128, 86, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = '#0f1624';
+        ctx.font = 'bold 68px Inter, system-ui';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('MINI', 128, 118);
+        ctx.fillText('GO', 128, 172);
+
+        const tex = new THREE.CanvasTexture(canvas);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.anisotropy = 4;
+        return tex;
+      }
+
+      function makeScratchTexture() {
+        const canvas = document.createElement('canvas');
+        canvas.width = canvas.height = 256;
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, 256, 256);
+        ctx.lineWidth = 4;
+        ctx.lineCap = 'round';
+        ctx.strokeStyle = 'rgba(28,35,49,0.65)';
+        for (let i = 0; i < 8; i++) {
+          const sx = Math.random() * 90 + 20;
+          const sy = Math.random() * 180 + 28;
+          const ex = sx + Math.random() * 120 + 40;
+          const ey = sy + (Math.random() * 30 - 15);
+          ctx.beginPath();
+          ctx.moveTo(sx, sy);
+          ctx.lineTo(ex, ey);
+          ctx.stroke();
+        }
+        const tex = new THREE.CanvasTexture(canvas);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.anisotropy = 4;
+        return tex;
+      }
+
       const bodyMat = new THREE.MeshStandardMaterial({
         color: 0xff5e6d,
         roughness: 0.45,
@@ -229,12 +281,21 @@
         normalMap: microNormal,
         normalScale: new THREE.Vector2(0.35, 0.35)
       });
-      const cabinMat = new THREE.MeshStandardMaterial({
-        color: 0x0f1624,
-        roughness: 0.38,
-        metalness: 0.03,
+      const roofShellMat = new THREE.MeshStandardMaterial({
+        color: 0x1f3350,
+        roughness: 0.28,
+        metalness: 0.12,
         normalMap: microNormal,
-        normalScale: new THREE.Vector2(0.25, 0.25)
+        normalScale: new THREE.Vector2(0.22, 0.22)
+      });
+      const roofGlassMat = new THREE.MeshStandardMaterial({
+        color: 0x0d1826,
+        roughness: 0.12,
+        metalness: 0.32,
+        transparent: true,
+        opacity: 0.86,
+        normalMap: microNormal,
+        normalScale: new THREE.Vector2(0.22, 0.22)
       });
       const wheelMat = new THREE.MeshStandardMaterial({
         color: 0x1b1b1b,
@@ -273,9 +334,139 @@
       body.position.y = 0.42;
       car.add(body);
 
-      const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.05, 0.42, 1.2), cabinMat);
-      cabin.position.set(0, 0.78, -0.1);
-      car.add(cabin);
+      const lowerMat = new THREE.MeshStandardMaterial({
+        color: 0x14233a,
+        roughness: 0.62,
+        metalness: 0.16,
+        normalMap: microNormal,
+        normalScale: new THREE.Vector2(0.24, 0.24)
+      });
+
+      const hullShape = new THREE.Shape();
+      hullShape.moveTo(-0.76, 1.22);
+      hullShape.quadraticCurveTo(-0.88, 0.94, -0.78, 0.46);
+      hullShape.quadraticCurveTo(-0.74, -0.12, -0.86, -0.86);
+      hullShape.quadraticCurveTo(-0.66, -1.26, -0.36, -1.36);
+      hullShape.quadraticCurveTo(0, -1.42, 0.36, -1.36);
+      hullShape.quadraticCurveTo(0.66, -1.26, 0.86, -0.86);
+      hullShape.quadraticCurveTo(0.74, -0.12, 0.78, 0.46);
+      hullShape.quadraticCurveTo(0.88, 0.94, 0.76, 1.22);
+      hullShape.quadraticCurveTo(0.48, 1.38, 0, 1.4);
+      hullShape.quadraticCurveTo(-0.48, 1.38, -0.76, 1.22);
+      const hullGeo = new THREE.ExtrudeGeometry(hullShape, {
+        depth: 0.26,
+        bevelEnabled: true,
+        bevelThickness: 0.04,
+        bevelSize: 0.05,
+        bevelSegments: 3,
+        steps: 1,
+      });
+      hullGeo.rotateX(-Math.PI / 2);
+      hullGeo.translate(0, 0, 0.13);
+      const hull = new THREE.Mesh(hullGeo, lowerMat);
+      hull.position.set(0, 0.16, 0);
+      car.add(hull);
+
+      const splitter = new THREE.Mesh(new THREE.BoxGeometry(1.32, 0.08, 0.38), lowerMat.clone());
+      splitter.position.set(0, 0.2, 1.1);
+      splitter.rotation.x = Math.PI / 48;
+      car.add(splitter);
+
+      const intakeMat = lowerMat.clone();
+      intakeMat.metalness = 0.28;
+      intakeMat.roughness = 0.48;
+      const intakeL = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.22, 0.18), intakeMat);
+      intakeL.position.set(-0.52, 0.26, 1.08);
+      intakeL.rotation.y = Math.PI / 14;
+      const intakeR = intakeL.clone();
+      intakeR.position.x *= -1;
+      intakeR.rotation.y *= -1;
+      car.add(intakeL, intakeR);
+
+      const skirt = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.16, 1.9), lowerMat.clone());
+      skirt.position.set(-0.72, 0.28, 0.02);
+      skirt.rotation.z = Math.PI / 90;
+      const skirtR = skirt.clone();
+      skirtR.position.x *= -1;
+      skirtR.rotation.z *= -1;
+      car.add(skirt, skirtR);
+
+      const diffuser = new THREE.Mesh(new THREE.BoxGeometry(1.12, 0.12, 0.42), lowerMat.clone());
+      diffuser.position.set(0, 0.22, -1.08);
+      diffuser.rotation.x = -Math.PI / 18;
+      car.add(diffuser);
+
+      const canopyDepth = 1.08;
+      const canopyShape = new THREE.Shape();
+      canopyShape.moveTo(-1.02, 0.64);
+      canopyShape.quadraticCurveTo(-0.72, 0.96, -0.28, 1.04);
+      canopyShape.quadraticCurveTo(0.04, 1.08, 0.36, 1.02);
+      canopyShape.quadraticCurveTo(0.88, 0.94, 1.04, 0.72);
+      canopyShape.quadraticCurveTo(1.12, 0.64, 1.02, 0.56);
+      canopyShape.quadraticCurveTo(0.26, 0.64, -0.92, 0.66);
+      canopyShape.closePath();
+
+      const canopyGeo = new THREE.ExtrudeGeometry(canopyShape, {
+        depth: canopyDepth,
+        bevelEnabled: true,
+        bevelThickness: 0.06,
+        bevelSize: 0.05,
+        bevelSegments: 5,
+        steps: 28,
+      });
+      canopyGeo.translate(0, 0, -canopyDepth / 2);
+      const canopyShell = new THREE.Mesh(canopyGeo, roofShellMat);
+      canopyShell.rotation.y = Math.PI / 2;
+      canopyShell.position.set(0, 0.08, -0.06);
+      canopyShell.scale.set(0.97, 1, 1);
+      car.add(canopyShell);
+
+      const canopyGlassMat = roofGlassMat.clone();
+      canopyGlassMat.opacity = 0.82;
+      canopyGlassMat.roughness = 0.08;
+
+      const windshield = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.98, 0.96, 1.12, 26, 1, true, Math.PI * 0.06, Math.PI * 0.92),
+        canopyGlassMat.clone()
+      );
+      windshield.rotation.set(Math.PI / 2.2, 0, 0);
+      windshield.position.set(0, 0.94, 0.64);
+      car.add(windshield);
+
+      const roofGlass = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.66, 0.64, 1.04, 22, 1, true, Math.PI * 0.12, Math.PI * 0.92),
+        canopyGlassMat.clone()
+      );
+      roofGlass.rotation.set(Math.PI / 2, 0, 0);
+      roofGlass.position.set(0, 1.02, 0.02);
+      car.add(roofGlass);
+
+      const rearGlass = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.82, 0.82, 1.02, 24, 1, true, Math.PI * 0.08, Math.PI * 0.9),
+        canopyGlassMat.clone()
+      );
+      rearGlass.rotation.set(Math.PI / 1.82, 0, 0);
+      rearGlass.position.set(0, 0.92, -0.72);
+      car.add(rearGlass);
+
+      const roofSpine = new THREE.Mesh(new THREE.CapsuleGeometry(0.16, 0.82, 10, 18), roofShellMat.clone());
+      roofSpine.rotation.x = Math.PI / 2;
+      roofSpine.scale.set(0.92, 1, 1);
+      roofSpine.position.set(0, 1.05, -0.02);
+      car.add(roofSpine);
+
+      const roofScoop = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.12, 0.44), roofShellMat.clone());
+      roofScoop.position.set(0, 0.98, 0.24);
+      roofScoop.rotation.x = -Math.PI / 20;
+      car.add(roofScoop);
+
+      const spoilerBar = new THREE.Mesh(new THREE.BoxGeometry(1.18, 0.08, 0.26), roofShellMat.clone());
+      spoilerBar.position.set(0, 0.96, -1.16);
+      const spoilerLegL = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.22, 0.22), roofShellMat.clone());
+      spoilerLegL.position.set(-0.48, 0.82, -1.12);
+      const spoilerLegR = spoilerLegL.clone();
+      spoilerLegR.position.x = 0.48;
+      car.add(spoilerBar, spoilerLegL, spoilerLegR);
 
       const bumperMat = new THREE.MeshStandardMaterial({
         color: 0xe0e6f0,
@@ -308,29 +499,27 @@
 
       const wheelGeo = new THREE.CylinderGeometry(0.22, 0.22, 0.18, 18);
       const hubGeo = new THREE.CylinderGeometry(0.08, 0.08, 0.2, 14);
-      const axleGeo = new THREE.CylinderGeometry(0.035, 0.035, 1.35, 10);
-      function axleAt(z) {
-        const axle = new THREE.Mesh(axleGeo, hubMat);
-        axle.rotation.z = Math.PI / 2;
-        axle.position.set(0, 0.22, z);
-        return axle;
-      }
-      car.add(axleAt(0.82));
-      car.add(axleAt(-0.82));
-      function wheelWithHub(x, z) {
-        const group = new THREE.Group();
+      const WHEEL_RADIUS = 0.22;
+      car.userData.wheels = [];
+      function wheelWithHub(x, z, steerable = false) {
+        const steering = new THREE.Group();
+        steering.position.set(x, 0.22, z);
+
+        const spin = new THREE.Group();
+        spin.rotation.z = Math.PI / 2;
+
         const w = new THREE.Mesh(wheelGeo, wheelMat);
-        w.rotation.z = Math.PI / 2;
-        w.position.set(x, 0.22, z);
         const hub = new THREE.Mesh(hubGeo, hubMat);
-        hub.rotation.z = Math.PI / 2;
-        hub.position.set(x, 0.22, z);
-        group.add(w);
-        group.add(hub);
-        return group;
+
+        spin.add(w);
+        spin.add(hub);
+        steering.add(spin);
+
+        car.userData.wheels.push({ spin, steering, steerable, radius: WHEEL_RADIUS });
+        return steering;
       }
-      car.add(wheelWithHub(-0.62, 0.82));
-      car.add(wheelWithHub( 0.62, 0.82));
+      car.add(wheelWithHub(-0.62, 0.82, true));
+      car.add(wheelWithHub( 0.62, 0.82, true));
       car.add(wheelWithHub(-0.62,-0.82));
       car.add(wheelWithHub( 0.62,-0.82));
 
@@ -345,6 +534,19 @@
         normalScale: new THREE.Vector2(0.2, 0.2)
       });
 
+      const hoodStripe = new THREE.Mesh(new THREE.PlaneGeometry(0.86, 0.52), stickerMat.clone());
+      hoodStripe.material.color.set(0xff2b3a);
+      hoodStripe.rotation.x = -Math.PI / 2;
+      hoodStripe.position.set(0, 0.64, 0.96);
+      car.add(hoodStripe);
+
+      const roofNumber = new THREE.Mesh(new THREE.PlaneGeometry(0.92, 0.72), stickerMat.clone());
+      roofNumber.material.map = makeNumberTexture(12);
+      roofNumber.material.transparent = true;
+      roofNumber.rotation.x = -Math.PI / 2;
+      roofNumber.position.set(0, 1.06, -0.12);
+      car.add(roofNumber);
+
       const stripe = new THREE.Mesh(new THREE.PlaneGeometry(0.34, 1.6), stickerMat.clone());
       stripe.material.color.set(0xffd36b);
       stripe.rotation.x = -Math.PI / 2;
@@ -356,6 +558,26 @@
       stripe2.material = stripe.material.clone();
       stripe2.material.color = new THREE.Color(0xffffff);
       car.add(stripe2);
+
+      const scratchMat = stickerMat.clone();
+      scratchMat.map = makeScratchTexture();
+      scratchMat.transparent = true;
+      const scratchL = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.38), scratchMat);
+      scratchL.position.set(-0.71, 0.36, -0.12);
+      scratchL.rotation.y = Math.PI / 2;
+      car.add(scratchL);
+
+      const scratchR = scratchL.clone();
+      scratchR.position.x = 0.71;
+      scratchR.rotation.y = -Math.PI / 2;
+      car.add(scratchR);
+
+      const hoodBadge = new THREE.Mesh(new THREE.PlaneGeometry(0.44, 0.44), stickerMat.clone());
+      hoodBadge.material.map = makeLogoTexture();
+      hoodBadge.material.transparent = true;
+      hoodBadge.rotation.x = -Math.PI / 2;
+      hoodBadge.position.set(0, 0.72, 0.28);
+      car.add(hoodBadge);
 
       const doorNumGeo = new THREE.PlaneGeometry(0.64, 0.46);
       const doorNumMat = stickerMat.clone();
@@ -612,7 +834,8 @@
 
       // Turning scales with speed (no rotation while stopped)
       const speedFactor = clamp(Math.abs(state.speed) / MAX_FWD, 0, 1);
-      const steer = state.speed < -0.05 ? -ax : ax;
+      const steerInput = ax;
+      const steer = state.speed < -0.05 ? -steerInput : steerInput;
       const turnRate = -steer * TURN * speedFactor;
       state.yaw += turnRate * dt;
 
@@ -621,6 +844,15 @@
       // Move forward in car's local +Z
       const forward = new THREE.Vector3(0, 0, 1).applyEuler(car.rotation);
       car.position.addScaledVector(forward, state.speed * dt);
+
+      if (car.userData.wheels) {
+        const spinDelta = (state.speed * dt) / (car.userData.wheels[0]?.radius || 1);
+        const steerAngle = -steerInput * 0.58 * speedFactor;
+        car.userData.wheels.forEach(({ spin, steering, steerable }) => {
+          spin.rotation.x = (spin.rotation.x + spinDelta) % (Math.PI * 2);
+          steering.rotation.y = steerable ? steerAngle : 0;
+        });
+      }
 
       // Clamp to bounds (soft wall)
       car.position.x = clamp(car.position.x, -bounds, bounds);
