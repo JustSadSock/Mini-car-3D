@@ -629,7 +629,7 @@
       const turnRate = -steer * TURN * speedFactor;
       state.yaw += turnRate * dt;
 
-      const visualSteer = clamp(steer, -1, 1) * (Math.PI / 7);
+      const visualSteer = clamp(ax, -1, 1) * (Math.PI / 7);
       car.userData.steeringPivots?.forEach((pivot) => {
         pivot.rotation.y = visualSteer;
       });
