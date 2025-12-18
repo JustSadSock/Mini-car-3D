@@ -449,112 +449,6 @@
       return { headlights: Array.from(headlights), tailLights: Array.from(tailLights) };
     }
 
-    function findMeshesUsingMaterials(root, materials) {
-      const targets = new Set(materials);
-      const meshes = [];
-      root.traverse((child) => {
-        if (!child.isMesh) return;
-        const mats = Array.isArray(child.material) ? child.material : [child.material];
-        if (mats.some((m) => targets.has(m))) meshes.push(child);
-      });
-      return meshes;
-    }
-
-    function computeLightPositions(meshes, car, fallbackFront = true) {
-      const box = new THREE.Box3();
-      const center = new THREE.Vector3();
-      const positions = meshes.map((mesh) => {
-        box.setFromObject(mesh);
-        box.getCenter(center);
-        return car.worldToLocal(center.clone());
-      });
-
-      if (positions.length >= 2) return positions;
-
-      const carBox = new THREE.Box3().setFromObject(car);
-      const spanX = (carBox.max.x - carBox.min.x) * 0.25;
-      const y = (carBox.max.y + carBox.min.y) / 2 + (carBox.max.y - carBox.min.y) * 0.12;
-      const z = fallbackFront ? carBox.max.z - 0.05 : carBox.min.z + 0.05;
-      const defaults = [
-        new THREE.Vector3(-spanX, y, z),
-        new THREE.Vector3(spanX, y, z)
-      ];
-
-      if (positions.length === 1) {
-        positions.push(defaults[positions[0].x >= 0 ? 0 : 1].clone());
-      } else if (positions.length === 0) {
-        positions.push(...defaults);
-      }
-      return positions;
-    }
-
-    function buildLightRig(car, headlights, tailLights) {
-      car.updateMatrixWorld(true);
-      const headMeshes = findMeshesUsingMaterials(car, headlights);
-      const tailMeshes = findMeshesUsingMaterials(car, tailLights);
-
-      const headPositions = computeLightPositions(headMeshes, car, true);
-      const tailPositions = computeLightPositions(tailMeshes, car, false);
-
-      const headBeams = headPositions.slice(0, 2).map((pos) => {
-        const light = new THREE.SpotLight(0xffffff, 5.8, 80, Math.PI / 7, 0.4, 1.6);
-        const aimDir = new THREE.Vector3(0, -0.04, 1).normalize();
-        const origin = pos.clone().add(new THREE.Vector3(0, 0.12, 0.18));
-        light.position.copy(origin);
-        const target = new THREE.Object3D();
-        target.position.copy(origin.clone().add(aimDir.clone().multiplyScalar(14)));
-        car.add(target);
-        light.target = target;
-        car.add(light);
-
-        const beamLength = 11;
-        const beamRadius = 2.9;
-        const beamGeometry = new THREE.ConeGeometry(beamRadius, beamLength, 24, 1, true);
-        beamGeometry.translate(0, -beamLength / 2, 0);
-        const beamMaterial = new THREE.MeshBasicMaterial({
-          color: 0xffffff,
-          transparent: true,
-          opacity: 0.28,
-          blending: THREE.AdditiveBlending,
-          depthWrite: false,
-          side: THREE.DoubleSide,
-          toneMapped: false,
-        });
-        const beam = new THREE.Mesh(beamGeometry, beamMaterial);
-        beam.position.copy(origin.clone().add(aimDir.clone().multiplyScalar(1.2)));
-        beam.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), aimDir);
-        car.add(beam);
-
-        return { light, target, beam, baseIntensity: light.intensity };
-      });
-
-      const tailGlows = tailPositions.slice(0, 2).map((pos) => {
-        const light = new THREE.PointLight(0xff2b2b, 2.6, 9, 2.4);
-        const origin = pos.clone().add(new THREE.Vector3(0, 0.08, -0.12));
-        light.position.copy(origin);
-        car.add(light);
-
-        const haze = new THREE.Mesh(
-          new THREE.SphereGeometry(0.38, 18, 14),
-          new THREE.MeshBasicMaterial({
-            color: 0xff2b2b,
-            transparent: true,
-            opacity: 0.6,
-            blending: THREE.AdditiveBlending,
-            depthWrite: false,
-            toneMapped: false,
-          })
-        );
-        haze.position.copy(origin.clone().add(new THREE.Vector3(0, 0.05, -0.04)));
-        haze.scale.set(1.2, 1.0, 1.35);
-        car.add(haze);
-
-        return { light, haze, baseIntensity: light.intensity };
-      });
-
-      return { headBeams, tailGlows };
-    }
-
     const wheelRollAxis = new THREE.Vector3(1, 0, 0);
     const wheelSteerAxis = new THREE.Vector3(0, 1, 0);
     const tempRollQuat = new THREE.Quaternion();
@@ -589,7 +483,6 @@
       const { wheelRig, radius } = categorizeWheels(car);
       const { headlights, tailLights } = collectLightMaterials(car);
       const bodyMaterials = collectBodyMaterials(car);
-      const lightRig = buildLightRig(car, headlights, tailLights);
 
       const headlightIntensities = headlights.map((m) =>
         typeof m.emissiveIntensity === "number" ? m.emissiveIntensity : 1.25
@@ -602,7 +495,6 @@
       car.userData.wheelRadius = radius;
       car.userData.lightsOn = true;
       car.userData.brakeActive = false;
-      car.userData.lightRig = lightRig;
 
       car.userData.setPlayerColor = (color) => {
         bodyMaterials.forEach((mat) => {
@@ -630,27 +522,6 @@
           mat.visible = car.userData.lightsOn || brake;
         });
 
-        lightRig?.headBeams?.forEach(({ light, target, beam, baseIntensity }) => {
-          const on = car.userData.lightsOn;
-          light.intensity = on ? baseIntensity : 0;
-          light.visible = on;
-          if (target) target.visible = on;
-          if (beam && beam.material) {
-            beam.visible = on;
-            beam.material.opacity = on ? 0.28 : 0.0;
-          }
-        });
-
-        lightRig?.tailGlows?.forEach(({ light, haze, baseIntensity }) => {
-          const on = car.userData.lightsOn || brake;
-          const intensity = on ? (brake ? baseIntensity * 2.2 : baseIntensity * 1.2) : 0;
-          light.intensity = intensity;
-          light.visible = on;
-          if (haze && haze.material) {
-            haze.visible = on;
-            haze.material.opacity = on ? (brake ? 0.9 : 0.6) : 0.0;
-          }
-        });
       };
 
       car.userData.applyLights(false);
