@@ -27,7 +27,8 @@ const NETWORK = {
   snapshotBuffer: [],
   snapshotDelay: 0.12, // render delay (s) for interpolation smoothing
   tickRate: 60,
-  snapshotRate: 20
+  snapshotRate: 20,
+  serverTimeOffset: 0
 };
 
 function setNetStatus(text, online = false) {
@@ -45,10 +46,13 @@ const eventQueue = new RAPIER.EventQueue(true);
 const rigidMeshes = new Map(); // rbHandle -> mesh
 const colliderMetadata = new Map(); // colliderHandle -> { type }
 const dynamicBodies = new Set();
+const clientProps = [];
+const serverProps = new Map();
 const tempVec3 = new THREE.Vector3();
 const tempQuat = new THREE.Quaternion();
 let playerGroundContacts = 0;
 let playerGrounded = false;
+let offlineWorldReady = false;
 
 const SAFE_ZONE = {
   center: new THREE.Vector3(0, 0, 0),
@@ -148,6 +152,29 @@ function registerBody(rb, mesh, collider, meta = {}) {
   if (collider) {
     colliderMetadata.set(collider.handle, meta);
     collider.setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS);
+  }
+}
+
+function disposeMesh(mesh) {
+  if (!mesh) return;
+  scene.remove(mesh);
+  mesh.traverse((child) => {
+    if (child.geometry) child.geometry.dispose?.();
+    if (child.material) {
+      if (Array.isArray(child.material)) child.material.forEach((m) => m?.dispose?.());
+      else child.material.dispose?.();
+    }
+  });
+}
+
+function unregisterBody(rb, collider) {
+  if (rb) {
+    rigidMeshes.delete(rb.handle);
+    dynamicBodies.delete(rb);
+    world.removeRigidBody(rb);
+  }
+  if (collider) {
+    colliderMetadata.delete(collider.handle);
   }
 }
 
@@ -255,8 +282,69 @@ function spawnProps(count = 18) {
       .setDensity(dynamic ? 0.6 : 1.0);
     const collider = world.createCollider(colliderDesc, rb);
     registerBody(rb, mesh, collider, { type: dynamic ? "prop-dynamic" : "prop-fixed", dynamic });
+    clientProps.push({ mesh, body: rb, collider });
   }
   return meshes;
+}
+
+function clearClientProps() {
+  while (clientProps.length) {
+    const prop = clientProps.pop();
+    if (!prop) continue;
+    disposeMesh(prop.mesh);
+    unregisterBody(prop.body, prop.collider);
+  }
+}
+
+function clearServerProps() {
+  for (const prop of serverProps.values()) {
+    disposeMesh(prop.mesh);
+  }
+  serverProps.clear();
+}
+
+function colorFromId(id) {
+  let hash = 0;
+  const text = `${id || "prop"}`;
+  for (let i = 0; i < text.length; i++) hash = (hash * 31 + text.charCodeAt(i)) >>> 0;
+  const hue = (hash % 360) / 360;
+  return new THREE.Color().setHSL(hue, 0.52, 0.52);
+}
+
+function spawnServerProps(list = []) {
+  clearServerProps();
+  list.forEach((prop) => {
+    const shape = prop.shape || "box";
+    const size = prop.size || { x: 0.4, y: 0.35, z: 0.4 };
+    const color = colorFromId(prop.id);
+    let mesh;
+    if (shape === "cylinder") {
+      mesh = new THREE.Mesh(
+        new THREE.CylinderGeometry(size.x, size.x, size.y * 2, 14),
+        new THREE.MeshStandardMaterial({ color, roughness: 0.6, metalness: 0.08 })
+      );
+    } else if (shape === "cone") {
+      mesh = new THREE.Mesh(
+        new THREE.ConeGeometry(size.x, size.y * 2, 14),
+        new THREE.MeshStandardMaterial({ color, roughness: 0.6, metalness: 0.08 })
+      );
+    } else {
+      mesh = new THREE.Mesh(
+        new THREE.BoxGeometry(size.x * 2, size.y * 2, size.z * 2),
+        new THREE.MeshStandardMaterial({ color, roughness: 0.65, metalness: 0.05 })
+      );
+    }
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+
+    const initial = prop.initial || {};
+    const pos = initial.p || [0, size.y || 0.35, 0];
+    const rot = initial.q || [0, 0, 0, 1];
+    mesh.position.set(pos[0] || 0, pos[1] || 0, pos[2] || 0);
+    mesh.quaternion.set(rot[0] || 0, rot[1] || 0, rot[2] || 0, rot[3] || 1);
+    scene.add(mesh);
+    serverProps.set(prop.id, { mesh, dynamic: prop.dynamic });
+  });
 }
 
 function makeNoiseNormalTexture(size = 128, spread = 6) {
@@ -548,7 +636,7 @@ const carModelPromise = loadCarModel();
 let car = null;
 
 function loadCarModel() {
-  return gltfLoader.loadAsync("models/normalcar1.glb").then((gltf) => gltf.scene);
+  return gltfLoader.loadAsync("models/NormalCar1.glb").then((gltf) => gltf.scene);
 }
 
 let loggedCarStructure = false;
@@ -937,6 +1025,12 @@ async function setupPlayerCar() {
 // --- Multiplayer (online/offline aware) ---
 const remotePlayers = new Map();
 
+function clearRemotePlayers() {
+  for (const id of Array.from(remotePlayers.keys())) {
+    removeRemotePlayer(id);
+  }
+}
+
 const PLAYER_COLORS = [
   "#ff6b35", // orange
   "#ffd166", // yellow
@@ -1105,6 +1199,116 @@ async function checkServerAvailability(host, timeoutMs = 1800) {
   }
 }
 
+function ensureOfflineWorld(message = "Offline режим (сервер недоступен)") {
+  NETWORK.mode = "offline";
+  setNetStatus(message, false);
+  NETWORK.snapshotBuffer.length = 0;
+  clearServerProps();
+  clearRemotePlayers();
+  if (!offlineWorldReady) {
+    clearClientProps();
+    spawnProps(20);
+    offlineWorldReady = true;
+  }
+}
+
+function snapshotClientTime(snap) {
+  return (snap?.serverTime || 0) + NETWORK.serverTimeOffset;
+}
+
+function interpolateState(a, b, alpha) {
+  if (!b) return a;
+  if (!a) return b;
+  const lerpVec = (va = [], vb = []) => [
+    THREE.MathUtils.lerp(va[0] || 0, vb[0] || 0, alpha),
+    THREE.MathUtils.lerp(va[1] || 0, vb[1] || 0, alpha),
+    THREE.MathUtils.lerp(va[2] || 0, vb[2] || 0, alpha),
+  ];
+  const qa = new THREE.Quaternion(a.q?.[0] || 0, a.q?.[1] || 0, a.q?.[2] || 0, a.q?.[3] || 1);
+  const qb = new THREE.Quaternion(b.q?.[0] || 0, b.q?.[1] || 0, b.q?.[2] || 0, b.q?.[3] || 1);
+  const qi = qa.clone().slerp(qb, alpha);
+  return {
+    id: a.id || b.id,
+    p: lerpVec(a.p, b.p),
+    q: [qi.x, qi.y, qi.z, qi.w],
+    lv: lerpVec(a.lv, b.lv),
+    av: lerpVec(a.av, b.av),
+  };
+}
+
+function applyInterpolatedPlayer(id, state) {
+  if (!state) return;
+  const pos = state.p || [0, 0, 0];
+  const rot = state.q || [0, 0, 0, 1];
+  const speed = Math.hypot(state.lv?.[0] || 0, state.lv?.[1] || 0, state.lv?.[2] || 0);
+  if (id === NETWORK.id) {
+    if (car) {
+      car.position.set(pos[0] || 0, pos[1] || 0, pos[2] || 0);
+      car.quaternion.set(rot[0] || 0, rot[1] || 0, rot[2] || 0, rot[3] || 1);
+      car.userData.lastSpeed = speed;
+      car.userData.lastTargetSpeed = speed;
+    }
+    return;
+  }
+
+  let remote = remotePlayers.get(id);
+  if (!remote) {
+    spawnRemotePlayer(id, { p: pos, q: rot }).catch(() => {});
+    remote = remotePlayers.get(id);
+  }
+  const mesh = remote?.mesh;
+  if (!mesh) return;
+  mesh.position.set(pos[0] || 0, pos[1] || 0, pos[2] || 0);
+  mesh.quaternion.set(rot[0] || 0, rot[1] || 0, rot[2] || 0, rot[3] || 1);
+  mesh.userData.lastSpeed = speed;
+  mesh.userData.lastTargetSpeed = speed;
+}
+
+function applyInterpolatedProps(stateMap) {
+  stateMap.forEach((state, id) => {
+    const entry = serverProps.get(id);
+    if (!entry || !entry.dynamic) return;
+    const pos = state.p || [0, 0, 0];
+    const rot = state.q || [0, 0, 0, 1];
+    entry.mesh.position.set(pos[0] || 0, pos[1] || 0, pos[2] || 0);
+    entry.mesh.quaternion.set(rot[0] || 0, rot[1] || 0, rot[2] || 0, rot[3] || 1);
+  });
+}
+
+function applySnapshotInterpolation() {
+  if (!NETWORK.snapshotBuffer.length) return;
+  NETWORK.snapshotBuffer.sort((a, b) => (a.serverTime || 0) - (b.serverTime || 0));
+  const renderTime = performance.now() - NETWORK.snapshotDelay * 1000;
+  while (NETWORK.snapshotBuffer.length > 2 && snapshotClientTime(NETWORK.snapshotBuffer[1]) <= renderTime) {
+    NETWORK.snapshotBuffer.shift();
+  }
+
+  const prev = NETWORK.snapshotBuffer[0];
+  const next = NETWORK.snapshotBuffer.find((s) => snapshotClientTime(s) >= renderTime) || NETWORK.snapshotBuffer[NETWORK.snapshotBuffer.length - 1];
+  const prevTime = snapshotClientTime(prev);
+  const nextTime = snapshotClientTime(next);
+  const span = Math.max(1, nextTime - prevTime);
+  const alpha = THREE.MathUtils.clamp((renderTime - prevTime) / span, 0, 1);
+
+  const prevPlayers = new Map((prev.players || []).map((p) => [p.id, p]));
+  const nextPlayers = new Map((next.players || []).map((p) => [p.id, p]));
+  const playerIds = new Set([...prevPlayers.keys(), ...nextPlayers.keys()]);
+  playerIds.forEach((id) => {
+    const state = interpolateState(prevPlayers.get(id), nextPlayers.get(id), alpha);
+    applyInterpolatedPlayer(id, state);
+  });
+
+  const prevProps = new Map((prev.props || []).map((p) => [p.id, p]));
+  const nextProps = new Map((next.props || []).map((p) => [p.id, p]));
+  const propIds = new Set([...prevProps.keys(), ...nextProps.keys()]);
+  const propStates = new Map();
+  propIds.forEach((id) => {
+    const state = interpolateState(prevProps.get(id), nextProps.get(id), alpha);
+    if (state) propStates.set(id, state);
+  });
+  applyInterpolatedProps(propStates);
+}
+
 function cleanSocket() {
   if (NETWORK.socket) {
     NETWORK.socket.close();
@@ -1151,9 +1355,14 @@ function handleMessage(evt) {
     NETWORK.id = data.id;
     NETWORK.tickRate = data.tickRate || NETWORK.tickRate;
     NETWORK.snapshotRate = data.snapshotRate || NETWORK.snapshotRate;
-    NETWORK.mode = "online-authoritative";
+    NETWORK.serverTimeOffset = performance.now() - (data.serverTime || Date.now());
+    NETWORK.mode = "online";
+    offlineWorldReady = false;
+    clearClientProps();
+    NETWORK.snapshotBuffer.length = 0;
     setNetStatus(`Online: ${resolveServerHost()}`, true);
     ensureLocalColor();
+    clearRemotePlayers();
     if (Array.isArray(data.props)) {
       spawnServerProps(data.props);
     }
@@ -1166,10 +1375,13 @@ function handleMessage(evt) {
       setupPlayerCar(false, false, data.initial).catch(() => {});
     }
   } else if (data.type === "snapshot") {
-    if (data.players?.length) {
-      NETWORK.snapshotBuffer.push({ ...data, receivedAt: performance.now() });
-      if (NETWORK.snapshotBuffer.length > 60) NETWORK.snapshotBuffer.shift();
-    }
+    const snap = { ...data, receivedAt: performance.now() };
+    NETWORK.snapshotBuffer.push(snap);
+    NETWORK.snapshotBuffer.sort((a, b) => (a.serverTime || 0) - (b.serverTime || 0));
+    if (NETWORK.snapshotBuffer.length > 90) NETWORK.snapshotBuffer.shift();
+    (data.players || [])
+      .filter((p) => p.id && p.id !== NETWORK.id && !remotePlayers.has(p.id))
+      .forEach((p) => spawnRemotePlayer(p.id, p).catch(() => {}));
   } else if (data.type === "player-left" && data.id) {
     removeRemotePlayer(data.id);
   } else if (data.type === "player-joined" && data.id && data.id !== NETWORK.id) {
@@ -1182,31 +1394,30 @@ async function initNetwork() {
   const host = resolveServerHost();
   const available = await checkServerAvailability(host);
   if (!available) {
-    NETWORK.mode = "offline";
-    setNetStatus("Offline режим (сервер недоступен)", false);
+    ensureOfflineWorld();
     scheduleReconnect();
-    return;
+    return false;
   }
 
   const protocol = host.includes("localhost") || host.includes("127.0.0.1") ? "ws" : "wss";
   const ws = new WebSocket(`${protocol}://${host}/ws`);
   ws.addEventListener("open", () => {
     NETWORK.socket = ws;
-    NETWORK.mode = "online-authoritative";
+    NETWORK.mode = "online";
     NETWORK.lastSend = 0;
     setNetStatus(`Online: ${host}`, true);
     sendInput();
   });
   ws.addEventListener("message", handleMessage);
   ws.addEventListener("close", () => {
-    NETWORK.mode = "offline";
-    setNetStatus("Offline режим (нет соединения)", false);
     NETWORK.socket = null;
+    ensureOfflineWorld("Offline режим (нет соединения)");
     scheduleReconnect();
   });
   ws.addEventListener("error", () => {
     setNetStatus("Offline режим (ошибка связи)", false);
   });
+  return true;
 }
 
 // --- Input: single joystick + keyboard fallback ---
@@ -1314,15 +1525,16 @@ const previousTransforms = new Map();
 let lastPhysicsDt = FIXED_DT;
 
 const DRIVE = {
-  engineImpulse: 5.6,  // raise for snappier acceleration (arcade)
-  steerTorque: 0.64,   // raise for faster yaw response
-  maxSpeed: 10.2,      // forward top speed (swap with reverse for request)
-  maxReverse: 24.0,    // reverse top speed (faster per request)
-  speedClamp: 0.3,     // higher = stronger speed cap impulse
-  sideGrip: 1.7,       // higher = less drift
+  engineImpulse: 4.8,   // toy-car push (lower = calmer)
+  steerTorque: 0.52,    // yaw authority
+  maxSpeed: 11.0,       // forward top speed
+  maxReverse: 7.5,      // reverse speed
+  speedClamp: 0.32,     // higher = stronger speed cap impulse
+  sideGrip: 2.4,        // higher = less drift
+  yawRateLimit: 3.2,    // clamp yaw spin (rad/s)
   ccd: true,
-  skidSideThreshold: 3.4,
-  skidMinSpeed: 4.6,
+  skidSideThreshold: 3.0,
+  skidMinSpeed: 4.0,
 };
 
 const CAMERA = {
@@ -1482,6 +1694,9 @@ function applyPlayerForces(dt) {
   if (sideMagnitude > 0.02 && traction > 0.01) {
     const gripScale = clamp(sideMagnitude / 6.5, 0.25, traction);
     const sideImpulse = right.clone().multiplyScalar(-sideSpeed * DRIVE.sideGrip * gripScale);
+    const maxSideImpulse = DRIVE.sideGrip * dt * 8;
+    const sideLen = sideImpulse.length();
+    if (sideLen > maxSideImpulse) sideImpulse.multiplyScalar(maxSideImpulse / sideLen);
     rb.applyImpulse(sideImpulse, true);
   }
 
@@ -1493,6 +1708,9 @@ function applyPlayerForces(dt) {
   const ang = rb.angvel();
   if (Math.abs(ang.x) + Math.abs(ang.y) + Math.abs(ang.z) > 0.01) {
     rb.applyTorqueImpulse({ x: -ang.x * 0.035, y: -ang.y * 0.08, z: -ang.z * 0.035 }, true);
+  }
+  if (Math.abs(ang.y) > DRIVE.yawRateLimit) {
+    rb.setAngvel({ x: ang.x * 0.6, y: Math.sign(ang.y) * DRIVE.yawRateLimit, z: ang.z * 0.6 }, true);
   }
 
   const speed = vel.length();
@@ -1685,18 +1903,26 @@ function updateParticles(dt) {
 function tick(now) {
   const dt = Math.min((now - last) / 1000, 0.05);
   last = now;
-  accumulator = Math.min(accumulator + dt, MAX_ACCUM);
+  if (NETWORK.mode === "offline" && offlineWorldReady) {
+    accumulator = Math.min(accumulator + dt, MAX_ACCUM);
 
-  if (accumulator >= FIXED_DT) {
-    capturePreviousTransforms();
-    while (accumulator >= FIXED_DT) {
-      stepPhysics(FIXED_DT);
-      accumulator -= FIXED_DT;
+    if (accumulator >= FIXED_DT) {
+      capturePreviousTransforms();
+      while (accumulator >= FIXED_DT) {
+        stepPhysics(FIXED_DT);
+        accumulator -= FIXED_DT;
+      }
     }
+
+    const alpha = accumulator / FIXED_DT;
+    syncPhysicsToMeshes(alpha);
+  } else {
+    accumulator = 0;
   }
 
-  const alpha = accumulator / FIXED_DT;
-  syncPhysicsToMeshes(alpha);
+  if (NETWORK.mode === "online") {
+    applySnapshotInterpolation();
+  }
 
   const blendDt = dt; // rendering dt for visuals
   updateCamera(blendDt);
@@ -1716,10 +1942,12 @@ function tick(now) {
     car.userData.applyLights?.(car.userData.brakeActive);
   }
 
-  updateRemotePlayers(blendDt);
+  if (NETWORK.mode === "offline") {
+    updateRemotePlayers(blendDt);
+  }
 
   if (NETWORK.mode === "online") {
-    sendStateSnapshot();
+    sendInput();
   }
 
   updateParticles(blendDt);
@@ -1729,9 +1957,11 @@ function tick(now) {
 
 async function startGame() {
   makeGroundAndBounds();
-  spawnProps(20);
   await setupPlayerCar();
-  initNetwork();
+  const onlineAttempt = await initNetwork();
+  if (!onlineAttempt && !offlineWorldReady) {
+    ensureOfflineWorld();
+  }
   requestAnimationFrame(tick);
 }
 startGame();

@@ -207,6 +207,7 @@ function createProps() {
           .setRotation({ x: initial.q[0], y: initial.q[1], z: initial.q[2], w: initial.q[3] })
           .setLinearDamping(1.2)
           .setAngularDamping(1.6)
+          .setCcdEnabled(true)
       : RAPIER.RigidBodyDesc.fixed().setTranslation(initial.p[0], initial.p[1], initial.p[2]);
     const body = world.createRigidBody(bodyDesc);
     let colliderDesc;
@@ -220,7 +221,8 @@ function createProps() {
     const collider = world.createCollider(
       colliderDesc
         .setFriction(0.9)
-        .setRestitution(0.28),
+        .setRestitution(0.28)
+        .setDensity(dynamic ? 0.6 : 1.0),
       body
     );
 
@@ -249,13 +251,15 @@ function spawnPlayer(id, colorIdx = 0) {
     RAPIER.RigidBodyDesc.dynamic()
       .setTranslation(spawnX, 0.6, spawnZ)
       .setRotation(quatFromEuler(0))
-      .setLinearDamping(3.0)
-      .setAngularDamping(6.0)
+      .setLinearDamping(3.2)
+      .setAngularDamping(7.0)
+      .setCcdEnabled(true)
   );
   const collider = world.createCollider(
     RAPIER.ColliderDesc.cuboid(0.9, 0.4, 1.6)
       .setFriction(1.2)
-      .setRestitution(0.3),
+      .setRestitution(0.3)
+      .setDensity(0.7),
     body
   );
   collider.setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS);
@@ -334,17 +338,21 @@ function applyInputs(dt) {
       z: 2 * (transform.x * transform.z - transform.w * transform.y)
     };
 
-    const engineForce = 22;
-    const steerStrength = 0.7;
-    const brakeStrength = 12;
-    const sideGrip = 5.5; // higher = less lateral drift
+    const engineForce = 18;
+    const steerStrength = 0.6;
+    const brakeStrength = 14;
+    const sideGrip = 6.4; // higher = less lateral drift
+    const maxYaw = 3.0;
 
     const throttle = clamp(input.throttle || 0, -1, 1);
     const steer = clamp(input.steer || 0, -1, 1);
     const braking = Boolean(input.brake);
 
     body.applyImpulse({ x: fwd.x * engineForce * throttle * dt, y: fwd.y * engineForce * throttle * dt, z: fwd.z * engineForce * throttle * dt }, true);
-    body.applyTorqueImpulse({ x: 0, y: steerStrength * steer * dt, z: 0 }, true);
+    const speed = body.linvel();
+    const speedMag = Math.hypot(speed.x, speed.y, speed.z);
+    const steerScale = 1 - Math.min(speedMag / 14, 1) * 0.6;
+    body.applyTorqueImpulse({ x: 0, y: steerStrength * steer * steerScale * dt, z: 0 }, true);
 
     if (braking) {
       const lv = body.linvel();
@@ -354,7 +362,19 @@ function applyInputs(dt) {
     // Simple sideways friction to keep toy feel stable
     const lv = body.linvel();
     const lateral = lv.x * right.x + lv.y * right.y + lv.z * right.z;
-    body.applyImpulse({ x: -right.x * lateral * sideGrip * dt, y: -right.y * lateral * sideGrip * 0.5 * dt, z: -right.z * lateral * sideGrip * dt }, true);
+    const sideImpulse = { x: -right.x * lateral * sideGrip * dt, y: -right.y * lateral * sideGrip * 0.4 * dt, z: -right.z * lateral * sideGrip * dt };
+    const sideLen = Math.hypot(sideImpulse.x, sideImpulse.y, sideImpulse.z);
+    const maxSide = sideGrip * dt * 8;
+    const scale = sideLen > maxSide ? maxSide / sideLen : 1;
+    body.applyImpulse({ x: sideImpulse.x * scale, y: sideImpulse.y * scale, z: sideImpulse.z * scale }, true);
+
+    // Downforce + yaw clamp
+    const downForce = Math.min(speedMag * 0.35, 8);
+    body.applyImpulse({ x: 0, y: -downForce * dt, z: 0 }, true);
+    const ang = body.angvel();
+    if (Math.abs(ang.y) > maxYaw) {
+      body.setAngvel({ x: ang.x * 0.6, y: Math.sign(ang.y) * maxYaw, z: ang.z * 0.6 }, true);
+    }
   }
 }
 
@@ -385,7 +405,12 @@ function buildSnapshot(targetId = null) {
 async function initPhysics() {
   if (physicsReady) return physicsReady;
   physicsReady = (async () => {
-    RAPIER = (await import('@dimforge/rapier3d-compat')).default;
+    try {
+      RAPIER = (await import('@dimforge/rapier3d-compat')).default;
+    } catch (err) {
+      log('Failed to load @dimforge/rapier3d-compat. Did you run "npm install"?', err?.message || err);
+      throw err;
+    }
     await RAPIER.init();
     world = new RAPIER.World(GRAVITY);
     makeGroundAndBounds();
