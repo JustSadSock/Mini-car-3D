@@ -934,26 +934,29 @@
       // --- Physics body (toy-like) ---
       const bbox = new THREE.Box3().setFromObject(car);
       const size = bbox.getSize(new THREE.Vector3());
-      const half = size.clone().multiplyScalar(0.28); // shrink a bit, but keep wider contact for collisions
 
       if (isPlayer) {
+        const halfX = size.x * 0.48; // widen for truer hitbox vs model
+        const halfY = size.y * 0.32; // taller collider = less bottoming out
+        const halfZ = size.z * 0.5;  // near full length so props register hits
+
         const rbDesc = RAPIER.RigidBodyDesc.dynamic()
-          .setTranslation(0, size.y * 0.55, 0)
+          .setTranslation(0, size.y * 0.52, 0)
           .setCanSleep(false)
-          .setLinearDamping(3.0) // lower for more glide, higher for tighter stop
-          .setAngularDamping(4.2); // lower for more spin, higher for stability
+          .setLinearDamping(3.8) // lower for more glide, higher for tighter stop
+          .setAngularDamping(5.2); // lower for more spin, higher for stability
         const rb = world.createRigidBody(rbDesc);
         if (DRIVE.ccd && rb.enableCcd) rb.enableCcd(true);
-        const colliderDesc = RAPIER.ColliderDesc.cuboid(half.x, size.y * 0.22, half.z)
-          .setTranslation(0, -size.y * 0.16, 0) // drop center of mass a bit
-          .setFriction(1.22) // more friction = grippier tabletop feel
-          .setRestitution(0.28) // more restitution = bouncier toy
-          .setDensity(0.75);
+        const colliderDesc = RAPIER.ColliderDesc.cuboid(halfX, halfY, halfZ)
+          .setTranslation(0, -size.y * 0.12, 0) // drop center of mass a bit
+          .setFriction(1.32) // more friction = grippier tabletop feel
+          .setRestitution(0.22) // less bounce = calmer toy
+          .setDensity(0.8);
         const collider = world.createCollider(colliderDesc, rb);
         registerBody(rb, car, collider, { type: "car", dynamic: true });
         playerPhysics.body = rb;
         playerPhysics.collider = collider;
-        car.position.copy(car.userData.initialPosition || new THREE.Vector3(0, size.y * 0.55, 0));
+        car.position.copy(car.userData.initialPosition || new THREE.Vector3(0, size.y * 0.52, 0));
       }
 
       return car;
@@ -1297,15 +1300,15 @@
     let cameraShake = 0;
 
     const DRIVE = {
-      engineImpulse: 1.25, // raise for snappier acceleration (arcade)
-      steerTorque: 0.95,   // raise for faster yaw response
-      maxSpeed: 18,
-      maxReverse: 9,
-      speedClamp: 0.42,    // higher = stronger speed cap impulse
-      sideGrip: 1.25,      // higher = less drift
+      engineImpulse: 0.9,  // raise for snappier acceleration (arcade)
+      steerTorque: 0.72,   // raise for faster yaw response
+      maxSpeed: 13.5,
+      maxReverse: 6.5,
+      speedClamp: 0.55,    // higher = stronger speed cap impulse
+      sideGrip: 2.4,       // higher = less drift
       ccd: true,
-      skidSideThreshold: 2.4,
-      skidMinSpeed: 3.8,
+      skidSideThreshold: 2.8,
+      skidMinSpeed: 4.2,
     };
 
     const CAMERA = {
@@ -1445,13 +1448,17 @@
 
       // Steering torque (stronger at medium speeds)
       const speedFactor = clamp(Math.abs(speedAlong) / DRIVE.maxSpeed, 0, 1);
-      const torqueScale = 0.6 + speedFactor * 0.7;
+      const torqueScale = 0.45 + speedFactor * 0.55;
       rb.applyTorqueImpulse({ x: 0, y: ax * DRIVE.steerTorque * torqueScale, z: 0 }, true);
 
       // Toy-like sideways grip cheat
       const sideSpeed = vel.dot(right);
       const sideImpulse = right.clone().multiplyScalar(-sideSpeed * DRIVE.sideGrip);
       rb.applyImpulse(sideImpulse, true);
+
+      // Extra yaw/roll stabilizer to keep toy car planted
+      const ang = rb.angvel();
+      rb.applyTorqueImpulse({ x: -ang.x * 0.04, y: -ang.y * 0.08, z: -ang.z * 0.04 }, true);
 
       const speed = vel.length();
       const forwardMax = speedAlong >= 0 ? DRIVE.maxSpeed : DRIVE.maxReverse;
@@ -1511,7 +1518,7 @@
         const v2 = rb2.linvel();
         const relVel = new THREE.Vector3(v1.x - v2.x, v1.y - v2.y, v1.z - v2.z);
         const impactStrength = clamp(relVel.length() * 0.16, 0, 2);
-        if (impactStrength < 0.25) return;
+        if (impactStrength < 0.18) return;
 
         let contactPoint = new THREE.Vector3();
         const pair = world.contactPair(c1, c2);
