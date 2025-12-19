@@ -167,6 +167,21 @@
     const tempVec3 = new THREE.Vector3();
     const tempQuat = new THREE.Quaternion();
 
+    let WORLD_SEED = 20240525;
+
+    function makeRng(seed = 1) {
+      let t = seed >>> 0;
+      return () => {
+        t += 0x6d2b79f5;
+        let r = t;
+        r = Math.imul(r ^ (r >>> 15), r | 1);
+        r ^= r + Math.imul(r ^ (r >>> 7), r | 61);
+        return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+      };
+    }
+
+    let WORLD_RNG = makeRng(WORLD_SEED);
+
     const SAFE_ZONE = {
       center: new THREE.Vector3(0, 0, 0),
       radius: 10,   // bigger = fewer props near spawn
@@ -307,17 +322,17 @@
       });
     }
 
-    function spawnProps(count = 18) {
+    function spawnProps(count = 18, rng = Math.random) {
       const meshes = [];
       for (let i = 0; i < count; i++) {
-        const dynamic = Math.random() > 0.35;
-        const shape = Math.random() > 0.6 ? "cylinder" : "box";
+        const dynamic = rng() > 0.35 && NETWORK.mode === "offline"; // keep online props deterministic/static
+        const shape = rng() > 0.6 ? "cylinder" : "box";
         const size = new THREE.Vector3(
-          0.4 + Math.random() * 0.4,
-          0.35 + Math.random() * 0.35,
-          0.4 + Math.random() * 0.4
+          0.4 + rng() * 0.4,
+          0.35 + rng() * 0.35,
+          0.4 + rng() * 0.4
         );
-        const color = new THREE.Color().setHSL(Math.random(), 0.5, 0.5);
+        const color = new THREE.Color().setHSL(rng(), 0.5, 0.5);
         let mesh;
         if (shape === "cylinder") {
           mesh = new THREE.Mesh(
@@ -336,16 +351,16 @@
         const findPropPosition = () => {
           let attempt = 0;
           while (attempt < 8) {
-            const x = (Math.random() * 2 - 1) * 55;
-            const z = (Math.random() * 2 - 1) * 55;
+            const x = (rng() * 2 - 1) * 55;
+            const z = (rng() * 2 - 1) * 55;
             const padding = Math.max(size.x, size.z) + 1.0;
             if (!isInsideSafeZone(x, z, padding)) {
               return { x, z };
             }
             attempt++;
           }
-          const angle = Math.random() * Math.PI * 2;
-          const r = SAFE_ZONE.radius + 6 + Math.random() * 18;
+          const angle = rng() * Math.PI * 2;
+          const r = SAFE_ZONE.radius + 6 + rng() * 18;
           return { x: SAFE_ZONE.center.x + Math.cos(angle) * r, z: SAFE_ZONE.center.z + Math.sin(angle) * r };
         };
 
@@ -1255,7 +1270,7 @@
       const yaw = rot ? Math.atan2(2 * (rot.w * rot.y + rot.x * rot.z), 1 - 2 * (rot.y * rot.y + rot.z * rot.z)) : car.rotation.y;
       const quat = rot ? [Number(rot.x.toFixed(4)), Number(rot.y.toFixed(4)), Number(rot.z.toFixed(4)), Number(rot.w.toFixed(4))] : [Number(car.quaternion.x.toFixed(4)), Number(car.quaternion.y.toFixed(4)), Number(car.quaternion.z.toFixed(4)), Number(car.quaternion.w.toFixed(4))];
       const speed = car.userData.lastSpeed || 0;
-      const steerVisual = clamp(inputX, -1, 1) * (Math.PI / 7);
+      const steerVisual = clamp(-inputX, -1, 1) * (Math.PI / 7);
       const payload = {
         type: "state",
         state: {
@@ -1281,6 +1296,10 @@
       if (data.type === "hello") {
         NETWORK.id = data.id;
         setNetStatus(`Online: ${resolveServerHost()}`, true);
+        if (typeof data.worldSeed === "number" && data.worldSeed !== WORLD_SEED) {
+          WORLD_SEED = data.worldSeed >>> 0;
+          WORLD_RNG = makeRng(WORLD_SEED);
+        }
         ensureLocalColor();
         if (Array.isArray(data.players)) {
           data.players.forEach((p) => {
@@ -1299,10 +1318,10 @@
       }
     }
 
-    async function initNetwork() {
+    async function initNetwork(prefetchedAvailable = null) {
       cleanSocket();
       const host = resolveServerHost();
-      const available = await checkServerAvailability(host);
+      const available = typeof prefetchedAvailable === "boolean" ? prefetchedAvailable : await checkServerAvailability(host);
       if (!available) {
         NETWORK.mode = "offline";
         setNetStatus("Offline режим (сервер недоступен)", false);
@@ -1640,7 +1659,8 @@
       const torqueScale = 0.45 + speedFactor * 0.55;
       const steerSign = speedAlong < -0.45 ? -1 : 1; // flip when reversing to match joystick feel
       const steerStrength = grounded ? DRIVE.steerTorque : DRIVE.steerTorque * 0.2;
-      rb.applyTorqueImpulse({ x: 0, y: ax * steerSign * steerStrength * torqueScale, z: 0 }, true);
+      const steerInput = -ax; // restore natural left/right orientation
+      rb.applyTorqueImpulse({ x: 0, y: steerInput * steerSign * steerStrength * torqueScale, z: 0 }, true);
 
       // Toy-like sideways grip cheat (only when wheels have contact)
       const sideSpeed = vel.dot(right);
@@ -1727,7 +1747,7 @@
           const vel = rb.linvel();
           const speed = forward.dot(new THREE.Vector3(vel.x, vel.y, vel.z));
           const rollDelta = (speed / (mesh.userData.wheelRadius || 1)) * lastPhysicsDt;
-          const steerVisual = mesh === car ? clamp(inputX, -1, 1) * (Math.PI / 7) : 0;
+          const steerVisual = mesh === car ? clamp(-inputX, -1, 1) * (Math.PI / 7) : 0;
           applyWheelPose(mesh, steerVisual, rollDelta);
         }
       });
@@ -1882,9 +1902,12 @@
 
     async function startGame() {
       makeGroundAndBounds();
-      spawnProps(20);
+      const host = resolveServerHost();
+      const available = await checkServerAvailability(host);
+      NETWORK.mode = available ? "online" : "offline";
+      spawnProps(20, WORLD_RNG);
       await setupPlayerCar();
-      initNetwork();
+      await initNetwork(available);
       requestAnimationFrame(tick);
     }
     startGame();
