@@ -268,6 +268,10 @@
       }
     }
 
+    function colliderType(handle) {
+      return colliderMetadata.get(handle)?.type || null;
+    }
+
     function makeGroundAndBounds() {
       const groundBody = world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
       const groundCollider = world.createCollider(
@@ -1007,20 +1011,15 @@
 
         const startPos = car.userData.initialPosition || new THREE.Vector3(0, size.y * 0.5, 0);
         const startRot = car.quaternion.clone();
-        const rbDesc = isPlayer
-          ? RAPIER.RigidBodyDesc.dynamic()
-              .setTranslation(startPos.x, startPos.y, startPos.z)
-              .setRotation({ x: startRot.x, y: startRot.y, z: startRot.z, w: startRot.w })
-              .setCanSleep(false)
-              .setLinearDamping(1.4) // lower for more glide (also faster fall), higher for tighter stop
-              .setAngularDamping(3.2) // lower for more spin, higher for stability
-          : RAPIER.RigidBodyDesc.kinematicPositionBased()
-              .setTranslation(startPos.x, startPos.y, startPos.z)
-              .setRotation({ x: startRot.x, y: startRot.y, z: startRot.z, w: startRot.w })
-              .setCanSleep(false);
+        const rbDesc = RAPIER.RigidBodyDesc.dynamic()
+          .setTranslation(startPos.x, startPos.y, startPos.z)
+          .setRotation({ x: startRot.x, y: startRot.y, z: startRot.z, w: startRot.w })
+          .setCanSleep(false)
+          .setLinearDamping(isPlayer ? 1.4 : 1.25) // lower for more glide (also faster fall), higher for tighter stop
+          .setAngularDamping(isPlayer ? 3.2 : 2.6); // lower for more spin, higher for stability
         const rb = world.createRigidBody(rbDesc);
         if (DRIVE.ccd && rb.enableCcd && isPlayer) rb.enableCcd(true);
-        if (rb.setGravityScale && isPlayer) {
+        if (rb.setGravityScale) {
           rb.setGravityScale(1.2, true); // >1 = stronger pull-down for snappier drops
         }
         const colliderDesc = RAPIER.ColliderDesc.cuboid(halfX, halfY, halfZ)
@@ -1156,9 +1155,16 @@
         const lerpYaw = currentYawVal + deltaYaw * follow;
         const lerpQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), lerpYaw);
 
-        if (rb?.setNextKinematicTranslation) {
-          rb.setNextKinematicTranslation({ x: lerpPos.x, y: lerpPos.y, z: lerpPos.z });
-          rb.setNextKinematicRotation({ x: lerpQuat.x, y: lerpQuat.y, z: lerpQuat.z, w: lerpQuat.w });
+        if (rb) {
+          const current = new THREE.Vector3(currentPos.x, currentPos.y, currentPos.z);
+          const desiredVel = lerpPos.clone().sub(current).multiplyScalar(1 / Math.max(dt, 0.001));
+          const linvel = rb.linvel();
+          const currentVel = new THREE.Vector3(linvel.x, linvel.y, linvel.z);
+          const velDiff = desiredVel.sub(currentVel);
+          const maxKick = 14;
+          if (velDiff.length() > maxKick) velDiff.setLength(maxKick);
+          rb.applyImpulse(velDiff.multiplyScalar(rb.mass()), true);
+          rb.setRotation({ x: lerpQuat.x, y: lerpQuat.y, z: lerpQuat.z, w: lerpQuat.w }, true);
         }
 
         player.mesh.position.copy(lerpPos);
@@ -1525,6 +1531,24 @@
       skidParticles.spawn(origin, 6, 1.4, [0.28, 0.45], dir);
     }
 
+    function isCarGrounded(mesh) {
+      const physics = mesh?.userData?.physics;
+      if (!physics?.body || !physics?.collider) return false;
+
+      const t = physics.body.translation();
+      const ray = new RAPIER.Ray({ x: t.x, y: t.y, z: t.z }, { x: 0, y: -1, z: 0 });
+      const radius = mesh.userData.wheelRadius || 0.35;
+      const maxDistance = Math.max(0.4, radius * 1.9);
+      const hit = world.castRay(ray, maxDistance, true, undefined, (collider) =>
+        collider.handle !== physics.collider.handle
+      );
+      if (hit) {
+        const normalY = typeof hit.normal?.y === "number" ? hit.normal.y : 0;
+        return hit.toi <= maxDistance && normalY > 0.2;
+      }
+      return false;
+    }
+
     function applyPlayerForces(dt) {
       const rb = playerPhysics.body;
       if (!car || !rb) return;
@@ -1552,6 +1576,9 @@
       ax = inputX;
       ay = inputY;
 
+      const grounded = isCarGrounded(car);
+      car.userData.grounded = grounded;
+
       const rot = rb.rotation();
       tempQuat.set(rot.x, rot.y, rot.z, rot.w);
       const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(tempQuat).normalize();
@@ -1560,20 +1587,23 @@
       const vel = new THREE.Vector3(velocity.x, velocity.y, velocity.z);
       const speedAlong = vel.dot(forward);
 
-      // Engine impulse
-      const engine = forward.clone().multiplyScalar(ay * DRIVE.engineImpulse);
-      rb.applyImpulse(engine, true);
+      // Engine impulse (only while grounded)
+      if (grounded) {
+        const engine = forward.clone().multiplyScalar(ay * DRIVE.engineImpulse);
+        rb.applyImpulse(engine, true);
+      }
 
       // Steering torque (stronger at medium speeds)
       const speedFactor = clamp(Math.abs(speedAlong) / DRIVE.maxSpeed, 0, 1);
       const torqueScale = 0.45 + speedFactor * 0.55;
       const steerSign = speedAlong < -0.45 ? -1 : 1; // flip when reversing to match joystick feel
-      rb.applyTorqueImpulse({ x: 0, y: -ax * steerSign * DRIVE.steerTorque * torqueScale, z: 0 }, true);
+      const steerStrength = grounded ? DRIVE.steerTorque : DRIVE.steerTorque * 0.2;
+      rb.applyTorqueImpulse({ x: 0, y: -ax * steerSign * steerStrength * torqueScale, z: 0 }, true);
 
-      // Toy-like sideways grip cheat
+      // Toy-like sideways grip cheat (only when wheels have contact)
       const sideSpeed = vel.dot(right);
       const sideMagnitude = Math.abs(sideSpeed);
-      if (sideMagnitude > 0.02) {
+      if (grounded && sideMagnitude > 0.02) {
         const gripScale = clamp(sideMagnitude / 6.5, 0.25, 1); // lower = smoother snaps, higher = tighter drift kill
         const sideImpulse = right.clone().multiplyScalar(-sideSpeed * DRIVE.sideGrip * gripScale);
         rb.applyImpulse(sideImpulse, true);
@@ -1582,12 +1612,18 @@
       // Extra yaw/roll stabilizer to keep toy car planted
       const ang = rb.angvel();
       if (Math.abs(ang.x) + Math.abs(ang.y) + Math.abs(ang.z) > 0.01) {
-        rb.applyTorqueImpulse({ x: -ang.x * 0.035, y: -ang.y * 0.08, z: -ang.z * 0.035 }, true);
+        const stabilizer = grounded ? 1 : 0.4;
+        rb.applyTorqueImpulse({ x: -ang.x * 0.035 * stabilizer, y: -ang.y * 0.08 * stabilizer, z: -ang.z * 0.035 * stabilizer }, true);
+      }
+
+      if (!grounded && vel.y > 0.2) {
+        const downImpulse = Math.min(vel.y * 0.4, 6);
+        rb.applyImpulse({ x: 0, y: -downImpulse * rb.mass(), z: 0 }, true);
       }
 
       const speed = vel.length();
       const forwardMax = speedAlong >= 0 ? DRIVE.maxSpeed : DRIVE.maxReverse;
-      if (speed > forwardMax + 0.35) {
+      if (speed > forwardMax + 0.35 && grounded) {
         const over = speed - forwardMax;
         const clampFactor = over * DRIVE.speedClamp;
         const clampImpulse = vel.clone().normalize().multiplyScalar(clampFactor);
@@ -1595,7 +1631,12 @@
       }
 
       // Skid dust
-      if (skidCooldown <= 0 && Math.abs(sideSpeed) > DRIVE.skidSideThreshold && Math.abs(speedAlong) > DRIVE.skidMinSpeed) {
+      if (
+        grounded &&
+        skidCooldown <= 0 &&
+        Math.abs(sideSpeed) > DRIVE.skidSideThreshold &&
+        Math.abs(speedAlong) > DRIVE.skidMinSpeed
+      ) {
         const pos = rb.translation();
         spawnSkid(new THREE.Vector3(pos.x, pos.y + 0.05, pos.z), right.clone(), clamp(Math.abs(sideSpeed) / 8, 0.2, 1));
         skidCooldown = 0.08;
@@ -1650,6 +1691,36 @@
       });
     }
 
+    function applyCarCollisionResponse(rb1, rb2, pair) {
+      const v1 = rb1.linvel();
+      const v2 = rb2.linvel();
+      const relVel = new THREE.Vector3(v1.x - v2.x, v1.y - v2.y, v1.z - v2.z);
+
+      const t1 = rb1.translation();
+      const t2 = rb2.translation();
+      const fallbackNormal = new THREE.Vector3(t2.x - t1.x, t2.y - t1.y, t2.z - t1.z);
+      let normal = fallbackNormal.lengthSq() > 0.0001 ? fallbackNormal.normalize() : new THREE.Vector3(0, 1, 0);
+
+      const manifold = pair?.manifolds?.[0];
+      if (manifold?.normal) {
+        const n = manifold.normal();
+        if (typeof n?.x === "number") {
+          normal = new THREE.Vector3(n.x, n.y, n.z).normalize();
+        }
+      }
+
+      const velAlongNormal = relVel.dot(normal);
+      if (velAlongNormal > 0) return;
+
+      const restitution = 0.35;
+      const invMass1 = 1 / rb1.mass();
+      const invMass2 = 1 / rb2.mass();
+      const impulseMag = clamp((-(1 + restitution) * velAlongNormal) / (invMass1 + invMass2), -8, 8);
+      const impulse = normal.clone().multiplyScalar(impulseMag);
+      rb1.applyImpulse(impulse.clone().multiplyScalar(-1), true);
+      rb2.applyImpulse(impulse, true);
+    }
+
     function processCollisions() {
       eventQueue.drainCollisionEvents((h1, h2, started) => {
         if (!started) return;
@@ -1659,14 +1730,22 @@
         const rb2 = c2 ? world.getRigidBody(c2.parent()) : null;
         if (!rb1 || !rb2) return;
 
+        const type1 = colliderType(h1);
+        const type2 = colliderType(h2);
+        const pair = world.contactPair(c1, c2);
+
         const v1 = rb1.linvel();
         const v2 = rb2.linvel();
         const relVel = new THREE.Vector3(v1.x - v2.x, v1.y - v2.y, v1.z - v2.z);
         const impactStrength = clamp(relVel.length() * 0.16, 0, 2);
+
+        const isCar = (t) => t === "car" || t === "car-remote";
+        if (isCar(type1) && isCar(type2)) {
+          applyCarCollisionResponse(rb1, rb2, pair);
+        }
         if (impactStrength < 0.18) return;
 
         let contactPoint = new THREE.Vector3();
-        const pair = world.contactPair(c1, c2);
         if (pair && pair.manifolds?.length) {
           const first = pair.manifolds[0];
           if (first?.contacts?.length) {
