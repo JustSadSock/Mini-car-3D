@@ -934,29 +934,31 @@
       // --- Physics body (toy-like) ---
       const bbox = new THREE.Box3().setFromObject(car);
       const size = bbox.getSize(new THREE.Vector3());
+      const center = bbox.getCenter(new THREE.Vector3());
 
       if (isPlayer) {
-        const halfX = size.x * 0.48; // widen for truer hitbox vs model
-        const halfY = size.y * 0.32; // taller collider = less bottoming out
-        const halfZ = size.z * 0.5;  // near full length so props register hits
+        const halfX = size.x * 0.46; // widen for truer hitbox vs model
+        const halfY = size.y * 0.3;  // taller collider = less bottoming out
+        const halfZ = size.z * 0.48; // near full length so props register hits
 
+        const startPos = car.userData.initialPosition || new THREE.Vector3(0, size.y * 0.5, 0);
         const rbDesc = RAPIER.RigidBodyDesc.dynamic()
-          .setTranslation(0, size.y * 0.52, 0)
+          .setTranslation(startPos.x, startPos.y, startPos.z)
           .setCanSleep(false)
-          .setLinearDamping(3.8) // lower for more glide, higher for tighter stop
-          .setAngularDamping(5.2); // lower for more spin, higher for stability
+          .setLinearDamping(2.6) // lower for more glide, higher for tighter stop
+          .setAngularDamping(4.1); // lower for more spin, higher for stability
         const rb = world.createRigidBody(rbDesc);
         if (DRIVE.ccd && rb.enableCcd) rb.enableCcd(true);
         const colliderDesc = RAPIER.ColliderDesc.cuboid(halfX, halfY, halfZ)
-          .setTranslation(0, -size.y * 0.12, 0) // drop center of mass a bit
-          .setFriction(1.32) // more friction = grippier tabletop feel
-          .setRestitution(0.22) // less bounce = calmer toy
-          .setDensity(0.8);
+          .setTranslation(center.x - car.position.x, center.y - car.position.y - size.y * 0.08, center.z - car.position.z)
+          .setFriction(1.2) // more friction = grippier tabletop feel
+          .setRestitution(0.26) // less bounce = calmer toy
+          .setDensity(0.72);
         const collider = world.createCollider(colliderDesc, rb);
         registerBody(rb, car, collider, { type: "car", dynamic: true });
         playerPhysics.body = rb;
         playerPhysics.collider = collider;
-        car.position.copy(car.userData.initialPosition || new THREE.Vector3(0, size.y * 0.52, 0));
+        car.position.copy(startPos);
       }
 
       return car;
@@ -1300,15 +1302,15 @@
     let cameraShake = 0;
 
     const DRIVE = {
-      engineImpulse: 0.9,  // raise for snappier acceleration (arcade)
-      steerTorque: 0.72,   // raise for faster yaw response
-      maxSpeed: 13.5,
-      maxReverse: 6.5,
-      speedClamp: 0.55,    // higher = stronger speed cap impulse
-      sideGrip: 2.4,       // higher = less drift
+      engineImpulse: 1.8,  // raise for snappier acceleration (arcade)
+      steerTorque: 0.6,    // raise for faster yaw response
+      maxSpeed: 11.5,
+      maxReverse: 5.2,
+      speedClamp: 0.42,    // higher = stronger speed cap impulse
+      sideGrip: 1.65,      // higher = less drift
       ccd: true,
-      skidSideThreshold: 2.8,
-      skidMinSpeed: 4.2,
+      skidSideThreshold: 3.4,
+      skidMinSpeed: 4.6,
     };
 
     const CAMERA = {
