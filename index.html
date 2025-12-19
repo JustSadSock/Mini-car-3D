@@ -159,7 +159,11 @@
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setClearColor(0x0b0f16, 1);
     renderer.outputEncoding = THREE.sRGBEncoding;
+    renderer.useLegacyLights = false;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.18;
     wrap.appendChild(renderer.domElement);
 
     // --- Scene / Camera ---
@@ -191,6 +195,7 @@
     const ground = new THREE.Mesh(groundGeo, groundMat);
     ground.rotation.x = -Math.PI / 2;
     ground.position.y = 0;
+    ground.receiveShadow = true;
     scene.add(ground);
 
     const grid = new THREE.GridHelper(220, 44, 0x3a4454, 0x2a3342);
@@ -240,6 +245,121 @@
       tex.magFilter = THREE.LinearFilter;
       tex.anisotropy = 4;
       return tex;
+    }
+
+    function makeHeadlightCookieTexture(size = 256) {
+      const canvas = document.createElement("canvas");
+      canvas.width = canvas.height = size;
+      const ctx = canvas.getContext("2d");
+      ctx.clearRect(0, 0, size, size);
+
+      // Soft elliptical glow
+      ctx.save();
+      ctx.translate(size / 2, size * 0.58);
+      ctx.scale(1.12, 0.86);
+      const radius = size * 0.48;
+      const grad = ctx.createRadialGradient(0, 0, radius * 0.1, 0, 0, radius);
+      grad.addColorStop(0.0, "rgba(255,255,255,0.9)");
+      grad.addColorStop(0.35, "rgba(255,255,255,0.55)");
+      grad.addColorStop(0.7, "rgba(255,255,255,0.25)");
+      grad.addColorStop(1.0, "rgba(255,255,255,0)");
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(0, 0, radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      // Slight directional streaks
+      ctx.save();
+      ctx.translate(size / 2, size * 0.52);
+      ctx.rotate(-Math.PI / 14);
+      const streakGrad = ctx.createLinearGradient(-size * 0.28, 0, size * 0.32, 0);
+      streakGrad.addColorStop(0, "rgba(255,255,255,0)");
+      streakGrad.addColorStop(0.5, "rgba(255,255,255,0.06)");
+      streakGrad.addColorStop(1, "rgba(255,255,255,0)");
+      ctx.fillStyle = streakGrad;
+      ctx.fillRect(-size * 0.35, -size * 0.22, size * 0.7, size * 0.44);
+      ctx.restore();
+
+      // Low-beam cutoff (top slice removed)
+      ctx.globalCompositeOperation = "destination-out";
+      const cutHeight = size * 0.38;
+      const cutGrad = ctx.createLinearGradient(0, 0, 0, cutHeight);
+      cutGrad.addColorStop(0, "rgba(0,0,0,1)");
+      cutGrad.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.fillStyle = cutGrad;
+      ctx.fillRect(0, 0, size, cutHeight);
+      ctx.globalCompositeOperation = "source-over";
+
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.minFilter = THREE.LinearFilter;
+      tex.magFilter = THREE.LinearFilter;
+      tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+      tex.needsUpdate = true;
+      return tex;
+    }
+
+    const headlightCookie = makeHeadlightCookieTexture();
+    const HEADLIGHT_POWER = 1600;
+
+    function attachHeadlights(car) {
+      const box = new THREE.Box3().setFromObject(car);
+      const size = box.getSize(new THREE.Vector3());
+      const center = box.getCenter(new THREE.Vector3());
+
+      const headlightHeight = center.y + size.y * 0.16;
+      const noseZ = box.max.z;
+      const offsetX = size.x * 0.22;
+
+      const target = new THREE.Object3D();
+      target.position.set(0, headlightHeight + size.y * 0.12, noseZ + size.z * 0.65);
+      car.add(target);
+
+      const createBeam = (distance, angle) => {
+        const radius = Math.tan(angle) * distance;
+        const beamGeo = new THREE.ConeGeometry(radius, distance, 14, 1, true);
+        beamGeo.rotateX(Math.PI / 2);
+        const beamMat = new THREE.MeshBasicMaterial({
+          color: 0xc8d8ff,
+          transparent: true,
+          opacity: 0.07,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+          side: THREE.DoubleSide
+        });
+        return new THREE.Mesh(beamGeo, beamMat);
+      };
+
+      const makeLight = (x) => {
+        const spot = new THREE.SpotLight(0xffffff, 0, 52, THREE.MathUtils.degToRad(16), 0.55, 2);
+        spot.position.set(x, headlightHeight, noseZ - size.z * 0.02);
+        spot.target = target;
+        spot.power = HEADLIGHT_POWER;
+        spot.map = headlightCookie;
+        spot.castShadow = false;
+        spot.shadow.mapSize.set(512, 512);
+        spot.shadow.bias = -0.0002;
+        spot.shadow.camera.near = 0.2;
+        spot.shadow.camera.far = 80;
+        car.add(spot);
+        return spot;
+      };
+
+      const left = makeLight(-offsetX);
+      const right = makeLight(offsetX);
+      left.castShadow = true;
+
+      const beams = {
+        left: createBeam(left.distance || 50, left.angle),
+        right: createBeam(right.distance || 50, right.angle)
+      };
+      beams.left.position.copy(left.position);
+      beams.right.position.copy(right.position);
+      beams.left.lookAt(target.position);
+      beams.right.lookAt(target.position);
+      car.add(beams.left, beams.right);
+
+      return { left, right, target, beams };
     }
 
     // --- Car (GLB model) ---
@@ -480,6 +600,12 @@
       const car = cloneSkeleton(baseScene);
       cloneMaterials(car);
 
+      car.traverse((child) => {
+        if (child.isMesh) {
+          child.castShadow = true;
+        }
+      });
+
       const { wheelRig, radius } = categorizeWheels(car);
       const { headlights, tailLights } = collectLightMaterials(car);
       const bodyMaterials = collectBodyMaterials(car);
@@ -522,8 +648,23 @@
           mat.visible = car.userData.lightsOn || brake;
         });
 
+        const rig = car.userData.headlights;
+        if (rig?.left && rig?.right) {
+          const on = car.userData.lightsOn;
+          rig.left.visible = on;
+          rig.right.visible = on;
+          rig.left.power = on ? HEADLIGHT_POWER : 0;
+          rig.right.power = on ? HEADLIGHT_POWER : 0;
+          if (rig.target) rig.target.visible = on;
+          if (rig.beams) {
+            rig.beams.left.visible = on;
+            rig.beams.right.visible = on;
+          }
+        }
+
       };
 
+      car.userData.headlights = attachHeadlights(car);
       car.userData.applyLights(false);
 
       return car;
@@ -824,6 +965,17 @@
     }, { passive: false });
 
     joy.addEventListener("pointercancel", releaseJoy, { passive: false });
+
+    let lastTapTime = 0;
+    window.addEventListener("touchend", (e) => {
+      const now = performance.now();
+      if (now - lastTapTime < 280) {
+        if (car?.userData?.setLights) {
+          car.userData.setLights(!car.userData.lightsOn);
+        }
+      }
+      lastTapTime = now;
+    }, { passive: false });
 
     // Keyboard fallback (PC)
     const keys = new Set();
