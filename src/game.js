@@ -90,8 +90,7 @@ const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setClearColor(0x0b0f16, 1);
-renderer.outputEncoding = THREE.sRGBEncoding;
-renderer.useLegacyLights = false;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.28;
 renderer.shadowMap.enabled = true;
@@ -1465,7 +1464,7 @@ function applyPlayerForces(dt) {
 
   // Extra downforce to keep the toy planted and stop "flying" antics
   const downForce = playerGrounded ? clamp(vel.length() * 0.28, 0, 6) : 0.8;
-  rb.applyForce({ x: 0, y: -downForce, z: 0 }, true);
+  rb.applyImpulse({ x: 0, y: -downForce * dt, z: 0 }, true);
 
   // Extra yaw/roll stabilizer to keep toy car planted
   const ang = rb.angvel();
