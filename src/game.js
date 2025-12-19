@@ -42,6 +42,8 @@ const colliderMetadata = new Map(); // colliderHandle -> { type }
 const dynamicBodies = new Set();
 const tempVec3 = new THREE.Vector3();
 const tempQuat = new THREE.Quaternion();
+let playerGroundContacts = 0;
+let playerGrounded = false;
 
 const SAFE_ZONE = {
   center: new THREE.Vector3(0, 0, 0),
@@ -801,6 +803,7 @@ async function makeCar(isPlayer = true, withPhysics = true, spawnOverride = null
   car.userData.rearLights = rearLights;
   car.userData.lastSpeed = 0;
   car.userData.lastTargetSpeed = 0;
+  car.userData.grounded = false;
 
   const spawnTransform = spawnOverride || (isPlayer ? getSafeSpawnTransform(NETWORK.id || "local") : null);
   if (spawnTransform?.position) {
@@ -921,6 +924,8 @@ async function makeCar(isPlayer = true, withPhysics = true, spawnOverride = null
 async function setupPlayerCar() {
   car = await makeCar(true, true, getSafeSpawnTransform(NETWORK.id || "local"));
   scene.add(car);
+  playerGroundContacts = 0;
+  playerGrounded = false;
   ensureLocalColor();
 }
 
@@ -1437,24 +1442,30 @@ function applyPlayerForces(dt) {
   const vel = new THREE.Vector3(velocity.x, velocity.y, velocity.z);
   const speedAlong = vel.dot(forward);
 
+  const traction = playerGrounded ? 1 : 0.15;
+
   // Engine impulse
-  const engine = forward.clone().multiplyScalar(ay * DRIVE.engineImpulse);
+  const engine = forward.clone().multiplyScalar(ay * DRIVE.engineImpulse * traction);
   rb.applyImpulse(engine, true);
 
   // Steering torque (stronger at medium speeds)
   const speedFactor = clamp(Math.abs(speedAlong) / DRIVE.maxSpeed, 0, 1);
   const torqueScale = 0.45 + speedFactor * 0.55;
   const steerSign = speedAlong < -0.45 ? -1 : 1; // flip when reversing to match joystick feel
-  rb.applyTorqueImpulse({ x: 0, y: -ax * steerSign * DRIVE.steerTorque * torqueScale, z: 0 }, true);
+  rb.applyTorqueImpulse({ x: 0, y: -ax * steerSign * DRIVE.steerTorque * torqueScale * traction, z: 0 }, true);
 
   // Toy-like sideways grip cheat
   const sideSpeed = vel.dot(right);
   const sideMagnitude = Math.abs(sideSpeed);
-  if (sideMagnitude > 0.02) {
-    const gripScale = clamp(sideMagnitude / 6.5, 0.25, 1); // lower = smoother snaps, higher = tighter drift kill
+  if (sideMagnitude > 0.02 && traction > 0.01) {
+    const gripScale = clamp(sideMagnitude / 6.5, 0.25, traction);
     const sideImpulse = right.clone().multiplyScalar(-sideSpeed * DRIVE.sideGrip * gripScale);
     rb.applyImpulse(sideImpulse, true);
   }
+
+  // Extra downforce to keep the toy planted and stop "flying" antics
+  const downForce = playerGrounded ? clamp(vel.length() * 0.28, 0, 6) : 0.8;
+  rb.applyForce({ x: 0, y: -downForce, z: 0 }, true);
 
   // Extra yaw/roll stabilizer to keep toy car planted
   const ang = rb.angvel();
@@ -1527,14 +1538,74 @@ function syncPhysicsToMeshes(alpha = 1) {
   });
 }
 
+function applyCollisionImpulse(rb1, rb2, normal, friction = 0.8, restitution = 0.2) {
+  const v1 = rb1.linvel();
+  const v2 = rb2.linvel();
+  const relVel = new THREE.Vector3(v1.x - v2.x, v1.y - v2.y, v1.z - v2.z);
+  const normalSpeed = relVel.dot(normal);
+  if (normalSpeed > 0) return;
+
+  const m1 = rb1.isDynamic() ? rb1.mass() : Infinity;
+  const m2 = rb2.isDynamic() ? rb2.mass() : Infinity;
+  const invMass1 = rb1.isDynamic() ? 1 / Math.max(m1, 0.0001) : 0;
+  const invMass2 = rb2.isDynamic() ? 1 / Math.max(m2, 0.0001) : 0;
+  const invSum = invMass1 + invMass2;
+  if (invSum === 0) return;
+
+  const impulseMag = (-(1 + restitution) * normalSpeed) / invSum;
+  const impulse = normal.clone().multiplyScalar(impulseMag);
+  if (rb1.isDynamic()) rb1.applyImpulse(impulse, true);
+  if (rb2.isDynamic()) rb2.applyImpulse(impulse.clone().multiplyScalar(-1), true);
+
+  const tangent = relVel.clone().sub(normal.clone().multiplyScalar(normalSpeed));
+  if (tangent.lengthSq() > 1e-6) {
+    tangent.normalize();
+    const jt = -relVel.dot(tangent) / invSum;
+    const maxFriction = impulseMag * friction;
+    const jtClamped = clamp(jt, -maxFriction, maxFriction);
+    const frictionImpulse = tangent.multiplyScalar(jtClamped);
+    if (rb1.isDynamic()) rb1.applyImpulse(frictionImpulse, true);
+    if (rb2.isDynamic()) rb2.applyImpulse(frictionImpulse.clone().multiplyScalar(-1), true);
+  }
+}
+
+function updateGroundState(c1, c2, started) {
+  const playerCollider = playerPhysics.collider;
+  if (!playerCollider) return;
+  if (c1?.handle === playerCollider.handle || c2?.handle === playerCollider.handle) {
+    if (started) playerGroundContacts += 1;
+    else playerGroundContacts = Math.max(0, playerGroundContacts - 1);
+    playerGrounded = playerGroundContacts > 0;
+    if (car) car.userData.grounded = playerGrounded;
+  }
+}
+
 function processCollisions() {
   eventQueue.drainCollisionEvents((h1, h2, started) => {
-    if (!started) return;
     const c1 = world.getCollider(h1);
     const c2 = world.getCollider(h2);
     const rb1 = c1 ? world.getRigidBody(c1.parent()) : null;
     const rb2 = c2 ? world.getRigidBody(c2.parent()) : null;
     if (!rb1 || !rb2) return;
+
+    updateGroundState(c1, c2, started);
+    if (!started) return;
+
+    const pair = world.contactPair(c1, c2);
+    const normal = new THREE.Vector3();
+    if (pair?.manifolds?.length) {
+      const n = pair.manifolds[0].normal();
+      if (n) normal.set(n.x, n.y, n.z).normalize();
+    }
+    if (normal.lengthSq() === 0) {
+      const t1 = rb1.translation();
+      const t2 = rb2.translation();
+      normal.set(t2.x - t1.x, t2.y - t1.y, t2.z - t1.z).normalize();
+    }
+
+    const friction = Math.min(c1?.friction?.() ?? 0.9, c2?.friction?.() ?? 0.9);
+    const restitution = Math.max(c1?.restitution?.() ?? 0.18, c2?.restitution?.() ?? 0.18);
+    applyCollisionImpulse(rb1, rb2, normal, friction, restitution);
 
     const v1 = rb1.linvel();
     const v2 = rb2.linvel();
@@ -1543,7 +1614,6 @@ function processCollisions() {
     if (impactStrength < 0.18) return;
 
     let contactPoint = new THREE.Vector3();
-    const pair = world.contactPair(c1, c2);
     if (pair && pair.manifolds?.length) {
       const first = pair.manifolds[0];
       if (first?.contacts?.length) {
