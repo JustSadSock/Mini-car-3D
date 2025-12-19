@@ -1015,8 +1015,8 @@
           .setTranslation(startPos.x, startPos.y, startPos.z)
           .setRotation({ x: startRot.x, y: startRot.y, z: startRot.z, w: startRot.w })
           .setCanSleep(false)
-          .setLinearDamping(isPlayer ? 1.4 : 1.25) // lower for more glide (also faster fall), higher for tighter stop
-          .setAngularDamping(isPlayer ? 3.2 : 2.6); // lower for more spin, higher for stability
+          .setLinearDamping(isPlayer ? 0.9 : 0.85) // lower for more glide (also faster fall), higher for tighter stop
+          .setAngularDamping(isPlayer ? 2.4 : 2.0); // lower for more spin, higher for stability
         const rb = world.createRigidBody(rbDesc);
         if (DRIVE.ccd && rb.enableCcd && isPlayer) rb.enableCcd(true);
         if (rb.setGravityScale) {
@@ -1045,6 +1045,18 @@
       car = await makeCar(true, true, getSafeSpawnTransform(NETWORK.id || "local"));
       scene.add(car);
       ensureLocalColor();
+    }
+
+    async function spawnExtraCar() {
+      const id = `extra-${extraCars.length + 1}`;
+      const transform = getSafeSpawnTransform(id);
+      transform.position.x += (Math.random() - 0.5) * SAFE_ZONE.radius * 0.45;
+      transform.position.z += (Math.random() - 0.5) * SAFE_ZONE.radius * 0.45;
+      const extra = await makeCar(false, true, transform);
+      colorizeCar(extra, id);
+      extra.userData.isRemote = false;
+      scene.add(extra);
+      extraCars.push(extra);
     }
 
 
@@ -1237,7 +1249,7 @@
       NETWORK.lastSend = now;
       const yaw = car.rotation.y;
       const speed = car.userData.lastSpeed || 0;
-      const steerVisual = -clamp(inputX, -1, 1) * (Math.PI / 7);
+      const steerVisual = clamp(inputX, -1, 1) * (Math.PI / 7);
       const payload = {
         type: "state",
         state: {
@@ -1316,6 +1328,8 @@
     const joy = document.getElementById("joy");
     const nub = document.getElementById("joyNub");
     const isCoarsePointer = window.matchMedia("(pointer: coarse)").matches;
+    const extraCars = [];
+    let extraSpawnCooldown = 0;
     if (!isCoarsePointer) {
       joy.style.display = "none";
     }
@@ -1389,8 +1403,16 @@
 
     // Keyboard fallback (PC)
     const keys = new Set();
-    window.addEventListener("keydown", (e) => { keys.add(e.code); });
-    window.addEventListener("keyup", (e) => { keys.delete(e.code); });
+    const keyValues = new Set();
+    window.addEventListener("keydown", (e) => {
+      keys.add(e.code);
+      if (e.key) keyValues.add(e.key.toLowerCase());
+      checkExtraSpawnHotkey();
+    });
+    window.addEventListener("keyup", (e) => {
+      keys.delete(e.code);
+      if (e.key) keyValues.delete(e.key.toLowerCase());
+    });
 
     function keyboardAxes() {
       let x = 0, y = 0;
@@ -1402,8 +1424,16 @@
       if (right) x += 1;
       if (up) y += 1;
       if (down) y -= 1;
-      // Invert both axes for keyboard to mirror requested control scheme
-      return { x: -x, y: -y };
+      return { x, y };
+    }
+
+    function checkExtraSpawnHotkey() {
+      if (extraSpawnCooldown > 0) return;
+      const russianCombo = keyValues.has("д") && keyValues.has("ю");
+      const layoutAgnosticCombo = keys.has("KeyL") && (keys.has("Period") || keys.has("Slash") || keys.has("Comma"));
+      if (!russianCombo && !layoutAgnosticCombo) return;
+      extraSpawnCooldown = 0.5;
+      spawnExtraCar().catch((err) => console.warn("Не удалось заспавнить доп. машину", err));
     }
 
     // --- Physics driving ---
@@ -1417,15 +1447,15 @@
     let lastPhysicsDt = FIXED_DT;
 
     const DRIVE = {
-      engineImpulse: 5.6,  // raise for snappier acceleration (arcade)
-      steerTorque: 0.64,   // raise for faster yaw response
-      maxSpeed: 10.2,      // forward top speed (swap with reverse for request)
-      maxReverse: 24.0,    // reverse top speed (faster per request)
-      speedClamp: 0.3,     // higher = stronger speed cap impulse
-      sideGrip: 1.7,       // higher = less drift
+      engineImpulse: 8.2,  // raise for snappier acceleration (arcade)
+      steerTorque: 0.72,   // raise for faster yaw response
+      maxSpeed: 12.4,      // forward top speed (swap with reverse for request)
+      maxReverse: 12.0,    // reverse top speed (balanced for control)
+      speedClamp: 0.24,    // higher = stronger speed cap impulse
+      sideGrip: 1.9,       // higher = less drift
       ccd: true,
-      skidSideThreshold: 3.4,
-      skidMinSpeed: 4.6,
+      skidSideThreshold: 3.0,
+      skidMinSpeed: 3.6,
     };
 
     const CAMERA = {
@@ -1539,16 +1569,18 @@
       const t = physics.body.translation();
       const radius = mesh.userData.wheelRadius || 0.35;
       const halfHeight = mesh.userData.colliderHalfHeight || radius * 0.9;
-      const origin = { x: t.x, y: t.y - halfHeight * 0.6, z: t.z };
+      const origin = { x: t.x, y: t.y + halfHeight * 0.4, z: t.z };
       const ray = new RAPIER.Ray(origin, { x: 0, y: -1, z: 0 });
-      const maxDistance = Math.max(0.6, radius * 2.4);
+      const maxDistance = Math.max(0.85, halfHeight * 1.6 + radius * 1.8);
       const hit = world.castRay(ray, maxDistance, true, undefined, (collider) =>
         collider.handle !== physics.collider.handle
       );
       if (hit) {
         const normalY = typeof hit.normal?.y === "number" ? hit.normal.y : 0;
-        return hit.toi <= maxDistance && normalY > -0.1;
+        if (hit.toi <= maxDistance && normalY > -0.2) return true;
       }
+      const vel = physics.body.linvel?.();
+      if (Math.abs(vel?.y || 0) < 0.3 && t.y < SAFE_ZONE.height + 2.5) return true;
       return false;
     }
 
@@ -1560,8 +1592,8 @@
       let ax = joyX;
       let ay = joyY;
       if (joyActive && isCoarsePointer) {
-        ax = joyX; // invert turn handling globally to keep on-screen directions natural
-        ay = -joyY;
+        ax = joyX;
+        ay = joyY;
       }
       if ((!joyActive || !isCoarsePointer) && ax === 0 && ay === 0) {
         const k = keyboardAxes();
@@ -1683,13 +1715,13 @@
           mesh.quaternion.copy(currentQuat);
         }
 
-        if (mesh === car) {
+        if (!mesh.userData?.isRemote && mesh.userData?.wheelRig) {
           const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(currentQuat);
           const vel = rb.linvel();
           const speed = forward.dot(new THREE.Vector3(vel.x, vel.y, vel.z));
-          const rollDelta = (speed / (car.userData.wheelRadius || 1)) * lastPhysicsDt;
-          const steerVisual = clamp(-inputX, -1, 1) * (Math.PI / 7);
-          applyWheelPose(car, steerVisual, rollDelta);
+          const rollDelta = (speed / (mesh.userData.wheelRadius || 1)) * lastPhysicsDt;
+          const steerVisual = mesh === car ? clamp(inputX, -1, 1) * (Math.PI / 7) : 0;
+          applyWheelPose(mesh, steerVisual, rollDelta);
         }
       });
     }
@@ -1798,6 +1830,7 @@
     function tick(now) {
       const dt = Math.min((now - last) / 1000, 0.05);
       last = now;
+      extraSpawnCooldown = Math.max(0, extraSpawnCooldown - dt);
       accumulator = Math.min(accumulator + dt, MAX_ACCUM);
 
       if (accumulator >= FIXED_DT) {
