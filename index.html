@@ -166,6 +166,46 @@
     const tempVec3 = new THREE.Vector3();
     const tempQuat = new THREE.Quaternion();
 
+    const SAFE_ZONE = {
+      center: new THREE.Vector3(0, 0, 0),
+      radius: 10,   // bigger = fewer props near spawn
+      height: 0.6,  // raise if car clips ground on spawn
+    };
+
+    const SAFE_SPAWN_SLOTS = [
+      new THREE.Vector3(0, 0, 0),
+      new THREE.Vector3(4, 0, 0),
+      new THREE.Vector3(-4, 0, 0),
+      new THREE.Vector3(0, 0, 4),
+      new THREE.Vector3(0, 0, -4),
+      new THREE.Vector3(4, 0, 4),
+      new THREE.Vector3(-4, 0, 4),
+      new THREE.Vector3(4, 0, -4),
+      new THREE.Vector3(-4, 0, -4),
+    ];
+
+    function hashIdForSlot(text = "local") {
+      let hash = 0;
+      for (let i = 0; i < text.length; i++) {
+        hash = (hash * 31 + text.charCodeAt(i)) >>> 0;
+      }
+      return hash;
+    }
+
+    function getSafeSpawnTransform(id = "local") {
+      const idx = hashIdForSlot(id) % SAFE_SPAWN_SLOTS.length;
+      const slot = SAFE_SPAWN_SLOTS[idx];
+      const pos = SAFE_ZONE.center.clone().add(slot);
+      pos.y = SAFE_ZONE.height;
+      return { position: pos, yaw: 0 };
+    }
+
+    function isInsideSafeZone(x, z, margin = 0) {
+      const dx = x - SAFE_ZONE.center.x;
+      const dz = z - SAFE_ZONE.center.z;
+      return Math.hypot(dx, dz) < SAFE_ZONE.radius + margin;
+    }
+
     // --- Renderer ---
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
@@ -289,8 +329,23 @@
         mesh.castShadow = true;
         mesh.receiveShadow = true;
 
-        const x = (Math.random() * 2 - 1) * 55;
-        const z = (Math.random() * 2 - 1) * 55;
+        const findPropPosition = () => {
+          let attempt = 0;
+          while (attempt < 8) {
+            const x = (Math.random() * 2 - 1) * 55;
+            const z = (Math.random() * 2 - 1) * 55;
+            const padding = Math.max(size.x, size.z) + 1.0;
+            if (!isInsideSafeZone(x, z, padding)) {
+              return { x, z };
+            }
+            attempt++;
+          }
+          const angle = Math.random() * Math.PI * 2;
+          const r = SAFE_ZONE.radius + 6 + Math.random() * 18;
+          return { x: SAFE_ZONE.center.x + Math.cos(angle) * r, z: SAFE_ZONE.center.z + Math.sin(angle) * r };
+        };
+
+        const { x, z } = findPropPosition();
         const y = size.y + 0.05;
         mesh.position.set(x, y, z);
         scene.add(mesh);
@@ -836,7 +891,7 @@
       });
     }
 
-    async function makeCar(isPlayer = true, withPhysics = true) {
+    async function makeCar(isPlayer = true, withPhysics = true, spawnOverride = null) {
       const baseScene = await carModelPromise;
       const car = cloneSkeleton(baseScene);
       cloneMaterials(car);
@@ -869,6 +924,15 @@
       car.userData.rearLights = rearLights;
       car.userData.lastSpeed = 0;
       car.userData.lastTargetSpeed = 0;
+
+      const spawnTransform = spawnOverride || (isPlayer ? getSafeSpawnTransform(NETWORK.id || "local") : null);
+      if (spawnTransform?.position) {
+        car.position.copy(spawnTransform.position);
+        car.userData.initialPosition = spawnTransform.position.clone();
+      }
+      if (typeof spawnTransform?.yaw === "number") {
+        car.rotation.y = spawnTransform.yaw;
+      }
 
       car.userData.setPlayerColor = (color) => {
         bodyMaterials.forEach((mat) => {
@@ -942,14 +1006,17 @@
         const halfZ = size.z * 0.48; // near full length so props register hits
 
         const startPos = car.userData.initialPosition || new THREE.Vector3(0, size.y * 0.5, 0);
+        const startRot = car.quaternion.clone();
         const rbDesc = isPlayer
           ? RAPIER.RigidBodyDesc.dynamic()
               .setTranslation(startPos.x, startPos.y, startPos.z)
+              .setRotation({ x: startRot.x, y: startRot.y, z: startRot.z, w: startRot.w })
               .setCanSleep(false)
               .setLinearDamping(1.75) // lower for more glide, higher for tighter stop
               .setAngularDamping(3.5) // lower for more spin, higher for stability
           : RAPIER.RigidBodyDesc.kinematicPositionBased()
               .setTranslation(startPos.x, startPos.y, startPos.z)
+              .setRotation({ x: startRot.x, y: startRot.y, z: startRot.z, w: startRot.w })
               .setCanSleep(false);
         const rb = world.createRigidBody(rbDesc);
         if (DRIVE.ccd && rb.enableCcd && isPlayer) rb.enableCcd(true);
@@ -972,7 +1039,7 @@
     }
 
     async function setupPlayerCar() {
-      car = await makeCar();
+      car = await makeCar(true, true, getSafeSpawnTransform(NETWORK.id || "local"));
       scene.add(car);
       ensureLocalColor();
     }
@@ -1008,6 +1075,17 @@
       mesh.userData.setPlayerColor?.(color);
     }
 
+    function buildSafeSpawnState(id = "remote") {
+      const safe = getSafeSpawnTransform(id);
+      return {
+        p: [safe.position.x, safe.position.y, safe.position.z],
+        y: safe.yaw,
+        s: 0,
+        st: 0,
+        b: false,
+      };
+    }
+
     function ensureLocalColor() {
       if (!car) return;
       const colorId = NETWORK.id || "local";
@@ -1020,14 +1098,18 @@
       if (remotePlayers.has(id)) return;
       const placeholder = { mesh: null, target: null, loading: true };
       remotePlayers.set(id, placeholder);
-      const ghost = await makeCar(false, true);
+      const initialState = snapshot || buildSafeSpawnState(id);
+      const spawnTransform = Array.isArray(initialState.p)
+        ? { position: new THREE.Vector3(initialState.p[0] || 0, initialState.p[1] || 0, initialState.p[2] || 0), yaw: initialState.y || 0 }
+        : getSafeSpawnTransform(id);
+      const ghost = await makeCar(false, true, spawnTransform);
       colorizeCar(ghost, id);
       ghost.userData.isRemote = true;
       ghost.userData.applyLights?.(false);
       scene.add(ghost);
       placeholder.mesh = ghost;
       placeholder.loading = false;
-      applyRemoteState(id, snapshot || { p: [0, 0, 0], y: 0, s: 0 });
+      applyRemoteState(id, initialState);
     }
 
     function removeRemotePlayer(id) {
@@ -1184,7 +1266,7 @@
       } else if (data.type === "player-left" && data.id) {
         removeRemotePlayer(data.id);
       } else if (data.type === "player-joined" && data.id && data.id !== NETWORK.id) {
-        if (!remotePlayers.has(data.id)) spawnRemotePlayer(data.id, { p: [0, 0, 0], y: 0, s: 0 }).catch((err) => console.warn("Remote spawn failed", err));
+        if (!remotePlayers.has(data.id)) spawnRemotePlayer(data.id, buildSafeSpawnState(data.id)).catch((err) => console.warn("Remote spawn failed", err));
       }
     }
 
