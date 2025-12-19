@@ -288,30 +288,6 @@
       return texture;
     }
 
-    function makeBeamFadeTexture(size = 128) {
-      const canvas = document.createElement("canvas");
-      canvas.width = size;
-      canvas.height = size * 2;
-      const ctx = canvas.getContext("2d");
-
-      const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
-      gradient.addColorStop(0.0, "rgba(255,255,255,0.0)");
-      gradient.addColorStop(0.15, "rgba(255,255,255,0.22)");
-      gradient.addColorStop(0.55, "rgba(255,255,255,0.08)");
-      gradient.addColorStop(1.0, "rgba(255,255,255,0.0)");
-
-      ctx.fillStyle = gradient;
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-      const tex = new THREE.CanvasTexture(canvas);
-      tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
-      tex.minFilter = THREE.LinearFilter;
-      tex.magFilter = THREE.LinearFilter;
-      tex.colorSpace = THREE.SRGBColorSpace;
-      tex.needsUpdate = true;
-      return tex;
-    }
-
     function attachHeadlights(car) {
       const cookie = attachHeadlights.cookie || (attachHeadlights.cookie = makeHeadlightCookieTexture());
 
@@ -356,41 +332,10 @@
         return spot;
       };
 
-      const beams = [];
-      const beamLength = Math.min(distance * 0.65, 28);
-      const beamRadius = Math.tan(angle) * beamLength * 1.32;
-      const beamGeo = new THREE.ConeGeometry(beamRadius, beamLength, 14, 1, true);
-      beamGeo.rotateX(Math.PI / 2);
-      beamGeo.translate(0, 0, beamLength * 0.48);
-
-      const beamTexture = makeBeamFadeTexture();
-      const beamMaterial = new THREE.MeshBasicMaterial({
-        color: 0xb8d9ff,
-        transparent: true,
-        opacity: 0.06,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-        depthTest: true,
-        side: THREE.DoubleSide,
-        alphaMap: beamTexture,
-      });
-
-      const createBeam = (offsetX) => {
-        const mesh = new THREE.Mesh(beamGeo, beamMaterial.clone());
-        mesh.position.set(offsetX, headlightY, frontZ);
-        mesh.renderOrder = 1;
-        mesh.userData.baseOpacity = mesh.material.opacity;
-        car.add(mesh);
-        beams.push(mesh);
-        return mesh;
-      };
-
       const left = createSpot(-xOffset, true);
       const right = createSpot(xOffset, false);
-      createBeam(-xOffset);
-      createBeam(xOffset);
 
-      return { left, right, target, beams };
+      return { left, right, target, beams: [] };
     }
 
     function attachRearLights(car) {
