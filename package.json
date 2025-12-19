@@ -4,6 +4,7 @@
   "description": "Mini Car 3D local + online multiplayer server",
   "main": "server.js",
   "scripts": {
+    "prestart": "node scripts/ensure-deps.cjs",
     "start": "node server.js"
   },
   "dependencies": {

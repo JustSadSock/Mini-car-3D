@@ -16,9 +16,11 @@ const WS_PATH = '/ws';
 // Physics runtime (lazy loaded because server.js is CJS)
 let RAPIER = null;
 let world = null;
-let physicsReady = null;
+let physicsInitialized = false;
 let physicsInitError = null;
 let loopsStarted = false;
+let wss = null;
+let loggedMissingRapier = false;
 
 // Game state
 const clients = new Map(); // id -> { ws, lastInput, lastSeq, bodyHandle }
@@ -407,31 +409,32 @@ function buildSnapshot(targetId = null) {
 }
 
 async function initPhysics() {
+  if (physicsInitialized) return;
   if (physicsInitError) throw physicsInitError;
-  if (physicsReady) return physicsReady;
-  physicsReady = (async () => {
-    try {
-      const mod = await import('@dimforge/rapier3d-compat');
-      RAPIER = mod.default ?? mod;
-    } catch (err) {
-      physicsInitError = err;
-      log('Missing dependency. Run: npm install', err?.message || err);
-      throw err;
-    }
+  try {
+    const mod = await import('@dimforge/rapier3d-compat');
+    RAPIER = mod.default ?? mod;
     await RAPIER.init();
     world = new RAPIER.World(GRAVITY);
     makeGroundAndBounds();
     createProps();
-    return true;
-  })();
-  return physicsReady;
+    physicsInitialized = true;
+  } catch (err) {
+    physicsInitError = err;
+    if (!loggedMissingRapier) {
+      log('Missing @dimforge/rapier3d-compat. Run: npm install');
+      loggedMissingRapier = true;
+    }
+    throw err;
+  }
 }
 
 // ---- WebSocket server ----
-const wss = new WebSocketServer({ server, path: WS_PATH, clientTracking: true, perMessageDeflate: false });
-
-async function handleConnection(ws) {
-  await initPhysics();
+function handleConnection(ws) {
+  if (!physicsInitialized || physicsInitError) {
+    ws.close(1013, 'Physics unavailable on server (run npm install)');
+    return;
+  }
   const id = randomUUID();
   spawnPlayer(id, clients.size % 8);
   const entry = clients.get(id);
@@ -498,21 +501,10 @@ function broadcast(data, skipId) {
   }
 }
 
-wss.on('connection', (ws) => {
-  if (physicsInitError) {
-    ws.close(1013, 'Physics unavailable on server (run npm install)');
-    return;
-  }
-  handleConnection(ws).catch((err) => {
-    log('failed to init client', err);
-    ws.close();
-  });
-});
-
 // ---- Simulation loop ----
-async function startLoops() {
+function startLoops() {
   if (loopsStarted || physicsInitError) return;
-  await initPhysics();
+  if (!physicsInitialized || !world) throw new Error('Physics not initialized');
   loopsStarted = true;
   const fixedDt = 1 / SERVER_TICK_RATE;
   setInterval(() => {
@@ -544,12 +536,28 @@ async function startLoops() {
     }
   }, HEARTBEAT_MS);
 }
+function setupWebSocket() {
+  wss = new WebSocketServer({ server, path: WS_PATH, clientTracking: true, perMessageDeflate: false });
+  wss.on('connection', handleConnection);
+}
 
-startLoops().catch((err) => {
-  physicsInitError = physicsInitError || err;
-  log('loop init error (dependency missing?) Run npm install', err?.message || err);
-});
+async function main() {
+  try {
+    await initPhysics();
+    startLoops();
+    setupWebSocket();
+    server.listen(PORT, () => {
+      log(`server listening on http://localhost:${PORT}`);
+    });
+  } catch (err) {
+    const message = err?.message || err;
+    if (!loggedMissingRapier) {
+      log('Missing @dimforge/rapier3d-compat. Run: npm install');
+      loggedMissingRapier = true;
+    }
+    log('Failed to start server:', message);
+    process.exit(1);
+  }
+}
 
-server.listen(PORT, () => {
-  log(`server listening on http://localhost:${PORT}`);
-});
+main();
