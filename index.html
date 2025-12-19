@@ -5,6 +5,7 @@
   <meta name="viewport"
         content="width=device-width, height=device-height, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>Mini Car 3D</title>
   <style>
@@ -211,8 +212,7 @@
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setClearColor(0x0b0f16, 1);
-    renderer.outputEncoding = THREE.sRGBEncoding;
-    renderer.useLegacyLights = false;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.28;
     renderer.shadowMap.enabled = true;
@@ -1030,6 +1030,7 @@
         const collider = world.createCollider(colliderDesc, rb);
         registerBody(rb, car, collider, { type: isPlayer ? "car" : "car-remote", dynamic: true });
         car.userData.physics = { body: rb, collider };
+        car.userData.colliderHalfHeight = halfY;
         if (isPlayer) {
           playerPhysics.body = rb;
           playerPhysics.collider = collider;
@@ -1536,15 +1537,17 @@
       if (!physics?.body || !physics?.collider) return false;
 
       const t = physics.body.translation();
-      const ray = new RAPIER.Ray({ x: t.x, y: t.y, z: t.z }, { x: 0, y: -1, z: 0 });
       const radius = mesh.userData.wheelRadius || 0.35;
-      const maxDistance = Math.max(0.4, radius * 1.9);
+      const halfHeight = mesh.userData.colliderHalfHeight || radius * 0.9;
+      const origin = { x: t.x, y: t.y - halfHeight * 0.6, z: t.z };
+      const ray = new RAPIER.Ray(origin, { x: 0, y: -1, z: 0 });
+      const maxDistance = Math.max(0.6, radius * 2.4);
       const hit = world.castRay(ray, maxDistance, true, undefined, (collider) =>
         collider.handle !== physics.collider.handle
       );
       if (hit) {
         const normalY = typeof hit.normal?.y === "number" ? hit.normal.y : 0;
-        return hit.toi <= maxDistance && normalY > 0.2;
+        return hit.toi <= maxDistance && normalY > -0.1;
       }
       return false;
     }
