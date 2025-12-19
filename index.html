@@ -340,17 +340,20 @@
       const createBeam = (distance, angle) => {
         const radius = Math.tan(angle) * distance;
         const beamGeo = new THREE.ConeGeometry(radius, distance, 14, 1, true);
-        beamGeo.rotateX(Math.PI / 2);
+        // Orient so the cone's -Z faces forward (matching lookAt behavior)
+        beamGeo.rotateX(-Math.PI / 2);
         const beamMat = new THREE.MeshBasicMaterial({
           color: 0xc8d8ff,
           transparent: true,
-          opacity: 0.12,
+          opacity: 0.05,
           blending: THREE.AdditiveBlending,
           depthWrite: false,
           side: THREE.DoubleSide,
           alphaMap: beamAlphaTex
         });
-        return new THREE.Mesh(beamGeo, beamMat);
+        const mesh = new THREE.Mesh(beamGeo, beamMat);
+        mesh.visible = false; // Only visible in heavy fog; keep disabled for clear air
+        return mesh;
       };
 
       const makeLight = (x) => {
@@ -378,8 +381,10 @@
       };
       beams.left.position.copy(left.position);
       beams.right.position.copy(right.position);
-      beams.left.lookAt(target.position);
-      beams.right.lookAt(target.position);
+      const worldTarget = new THREE.Vector3();
+      target.getWorldPosition(worldTarget);
+      beams.left.lookAt(worldTarget);
+      beams.right.lookAt(worldTarget);
       car.add(beams.left, beams.right);
 
       return { left, right, target, beams };
@@ -839,8 +844,8 @@
           rig.right.power = on ? HEADLIGHT_POWER : 0;
           if (rig.target) rig.target.visible = on;
           if (rig.beams) {
-            rig.beams.left.visible = on;
-            rig.beams.right.visible = on;
+            rig.beams.left.visible = false;
+            rig.beams.right.visible = false;
           }
         }
 
