@@ -17,6 +17,8 @@ const WS_PATH = '/ws';
 let RAPIER = null;
 let world = null;
 let physicsReady = null;
+let physicsInitError = null;
+let loopsStarted = false;
 
 // Game state
 const clients = new Map(); // id -> { ws, lastInput, lastSeq, bodyHandle }
@@ -90,12 +92,13 @@ const server = http.createServer((req, res) => {
       res.end(JSON.stringify({ ok: false, error: 'CORS blocked' }));
       return;
     }
+    const healthy = !physicsInitError;
     res.writeHead(200, {
       'Content-Type': 'application/json; charset=utf-8',
       'Cache-Control': 'no-cache',
       ...corsHeaders
     });
-    res.end(JSON.stringify({ ok: true }));
+    res.end(JSON.stringify(healthy ? { ok: true } : { ok: false, error: 'rapier missing' }));
     return;
   }
 
@@ -321,6 +324,7 @@ function propSnapshot(prop) {
 }
 
 function applyInputs(dt) {
+  if (!world) return;
   for (const [id, client] of clients.entries()) {
     if (!client.ws || client.ws.readyState !== client.ws.OPEN) continue;
     const body = world.getRigidBody(client.bodyHandle);
@@ -339,10 +343,10 @@ function applyInputs(dt) {
     };
 
     const engineForce = 18;
-    const steerStrength = 0.6;
+    const steerStrength = 0.5;
     const brakeStrength = 14;
-    const sideGrip = 6.4; // higher = less lateral drift
-    const maxYaw = 3.0;
+    const sideGrip = 7.6; // higher = less lateral drift
+    const maxYaw = 2.7;
 
     const throttle = clamp(input.throttle || 0, -1, 1);
     const steer = clamp(input.steer || 0, -1, 1);
@@ -351,12 +355,12 @@ function applyInputs(dt) {
     body.applyImpulse({ x: fwd.x * engineForce * throttle * dt, y: fwd.y * engineForce * throttle * dt, z: fwd.z * engineForce * throttle * dt }, true);
     const speed = body.linvel();
     const speedMag = Math.hypot(speed.x, speed.y, speed.z);
-    const steerScale = 1 - Math.min(speedMag / 14, 1) * 0.6;
+    const steerScale = 1 - Math.min(speedMag / 12, 1) * 0.7;
     body.applyTorqueImpulse({ x: 0, y: steerStrength * steer * steerScale * dt, z: 0 }, true);
 
     if (braking) {
       const lv = body.linvel();
-      body.applyImpulse({ x: -lv.x * brakeStrength * dt, y: -lv.y * 0.5 * dt, z: -lv.z * brakeStrength * dt }, true);
+      body.applyImpulse({ x: -lv.x * brakeStrength * dt, y: 0, z: -lv.z * brakeStrength * dt }, true);
     }
 
     // Simple sideways friction to keep toy feel stable
@@ -403,12 +407,15 @@ function buildSnapshot(targetId = null) {
 }
 
 async function initPhysics() {
+  if (physicsInitError) throw physicsInitError;
   if (physicsReady) return physicsReady;
   physicsReady = (async () => {
     try {
-      RAPIER = (await import('@dimforge/rapier3d-compat')).default;
+      const mod = await import('@dimforge/rapier3d-compat');
+      RAPIER = mod.default ?? mod;
     } catch (err) {
-      log('Failed to load @dimforge/rapier3d-compat. Did you run "npm install"?', err?.message || err);
+      physicsInitError = err;
+      log('Missing dependency. Run: npm install', err?.message || err);
       throw err;
     }
     await RAPIER.init();
@@ -492,6 +499,10 @@ function broadcast(data, skipId) {
 }
 
 wss.on('connection', (ws) => {
+  if (physicsInitError) {
+    ws.close(1013, 'Physics unavailable on server (run npm install)');
+    return;
+  }
   handleConnection(ws).catch((err) => {
     log('failed to init client', err);
     ws.close();
@@ -500,7 +511,9 @@ wss.on('connection', (ws) => {
 
 // ---- Simulation loop ----
 async function startLoops() {
+  if (loopsStarted || physicsInitError) return;
   await initPhysics();
+  loopsStarted = true;
   const fixedDt = 1 / SERVER_TICK_RATE;
   setInterval(() => {
     applyInputs(fixedDt);
@@ -532,7 +545,10 @@ async function startLoops() {
   }, HEARTBEAT_MS);
 }
 
-startLoops().catch((err) => log('loop init error', err));
+startLoops().catch((err) => {
+  physicsInitError = physicsInitError || err;
+  log('loop init error (dependency missing?) Run npm install', err?.message || err);
+});
 
 server.listen(PORT, () => {
   log(`server listening on http://localhost:${PORT}`);
