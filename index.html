@@ -945,8 +945,8 @@
         const rbDesc = RAPIER.RigidBodyDesc.dynamic()
           .setTranslation(startPos.x, startPos.y, startPos.z)
           .setCanSleep(false)
-          .setLinearDamping(2.15) // lower for more glide, higher for tighter stop
-          .setAngularDamping(3.8); // lower for more spin, higher for stability
+          .setLinearDamping(1.75) // lower for more glide, higher for tighter stop
+          .setAngularDamping(3.5); // lower for more spin, higher for stability
         const rb = world.createRigidBody(rbDesc);
         if (DRIVE.ccd && rb.enableCcd) rb.enableCcd(true);
         const colliderDesc = RAPIER.ColliderDesc.cuboid(halfX, halfY, halfZ)
@@ -1300,14 +1300,16 @@
     let accumulator = 0;
     let last = performance.now();
     let cameraShake = 0;
+    const previousTransforms = new Map();
+    let lastPhysicsDt = FIXED_DT;
 
     const DRIVE = {
-      engineImpulse: 4.4,  // raise for snappier acceleration (arcade)
-      steerTorque: 0.62,   // raise for faster yaw response
-      maxSpeed: 20.0,
-      maxReverse: 9.0,
-      speedClamp: 0.36,    // higher = stronger speed cap impulse
-      sideGrip: 1.65,      // higher = less drift
+      engineImpulse: 5.6,  // raise for snappier acceleration (arcade)
+      steerTorque: 0.64,   // raise for faster yaw response
+      maxSpeed: 24.0,
+      maxReverse: 10.2,
+      speedClamp: 0.3,     // higher = stronger speed cap impulse
+      sideGrip: 1.7,       // higher = less drift
       ccd: true,
       skidSideThreshold: 3.4,
       skidMinSpeed: 4.6,
@@ -1455,7 +1457,8 @@
       // Steering torque (stronger at medium speeds)
       const speedFactor = clamp(Math.abs(speedAlong) / DRIVE.maxSpeed, 0, 1);
       const torqueScale = 0.45 + speedFactor * 0.55;
-      rb.applyTorqueImpulse({ x: 0, y: ax * DRIVE.steerTorque * torqueScale, z: 0 }, true);
+      const steerSign = speedAlong < -0.45 ? -1 : 1; // flip when reversing to match joystick feel
+      rb.applyTorqueImpulse({ x: 0, y: ax * steerSign * DRIVE.steerTorque * torqueScale, z: 0 }, true);
 
       // Toy-like sideways grip cheat
       const sideSpeed = vel.dot(right);
@@ -1489,22 +1492,41 @@
       car.userData.applyLights?.(car.userData.brakeActive);
     }
 
-    function syncPhysicsToMeshes(dt) {
+    function capturePreviousTransforms() {
+      dynamicBodies.forEach((rb) => {
+        const t = rb.translation();
+        const r = rb.rotation();
+        previousTransforms.set(rb.handle, {
+          position: new THREE.Vector3(t.x, t.y, t.z),
+          quaternion: new THREE.Quaternion(r.x, r.y, r.z, r.w),
+        });
+      });
+    }
+
+    function syncPhysicsToMeshes(alpha = 1) {
+      const blend = clamp(alpha, 0, 1);
       dynamicBodies.forEach((rb) => {
         const mesh = rigidMeshes.get(rb.handle);
         if (!mesh) return;
         const t = rb.translation();
-        mesh.position.set(t.x, t.y, t.z);
         const r = rb.rotation();
-        mesh.quaternion.set(r.x, r.y, r.z, r.w);
+        const currentPos = new THREE.Vector3(t.x, t.y, t.z);
+        const currentQuat = new THREE.Quaternion(r.x, r.y, r.z, r.w);
+        const prev = previousTransforms.get(rb.handle);
+
+        if (prev && blend < 0.999) {
+          mesh.position.copy(prev.position).lerp(currentPos, blend);
+          mesh.quaternion.copy(prev.quaternion).slerp(currentQuat, blend);
+        } else {
+          mesh.position.copy(currentPos);
+          mesh.quaternion.copy(currentQuat);
+        }
 
         if (mesh === car) {
-          const rot = rb.rotation();
-          tempQuat.set(rot.x, rot.y, rot.z, rot.w);
-          const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(tempQuat);
+          const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(currentQuat);
           const vel = rb.linvel();
           const speed = forward.dot(new THREE.Vector3(vel.x, vel.y, vel.z));
-          const rollDelta = (speed / (car.userData.wheelRadius || 1)) * dt;
+          const rollDelta = (speed / (car.userData.wheelRadius || 1)) * lastPhysicsDt;
           const steerVisual = -clamp(inputX, -1, 1) * (Math.PI / 7);
           applyWheelPose(car, steerVisual, rollDelta);
         }
@@ -1563,10 +1585,10 @@
     }
 
     function stepPhysics(dt) {
+      lastPhysicsDt = dt;
       applyPlayerForces(dt);
       world.step(eventQueue);
       processCollisions();
-      syncPhysicsToMeshes(dt);
     }
 
     function updateParticles(dt) {
@@ -1579,10 +1601,16 @@
       last = now;
       accumulator = Math.min(accumulator + dt, MAX_ACCUM);
 
-      while (accumulator >= FIXED_DT) {
-        stepPhysics(FIXED_DT);
-        accumulator -= FIXED_DT;
+      if (accumulator >= FIXED_DT) {
+        capturePreviousTransforms();
+        while (accumulator >= FIXED_DT) {
+          stepPhysics(FIXED_DT);
+          accumulator -= FIXED_DT;
+        }
       }
+
+      const alpha = accumulator / FIXED_DT;
+      syncPhysicsToMeshes(alpha);
 
       const blendDt = dt; // rendering dt for visuals
       updateCamera(blendDt);
