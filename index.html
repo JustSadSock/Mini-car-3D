@@ -331,7 +331,7 @@
 
       const headlightHeight = center.y + size.y * 0.16;
       const noseZ = box.max.z;
-      const offsetX = size.x * 0.22;
+      const offsetX = Math.max(size.x * 0.28, size.x * 0.12);
 
       const target = new THREE.Object3D();
       target.position.set(0, headlightHeight + size.y * 0.12, noseZ + size.z * 0.68);
@@ -356,9 +356,51 @@
         return mesh;
       };
 
-      const makeLight = (x) => {
+      const getHeadlightAnchors = () => {
+        const anchors = [];
+        const tmp = new THREE.Vector3();
+        const nameMatches = (name) =>
+          ["head", "front", "lamp", "light"].some((k) => name.includes(k));
+
+        car.traverse((child) => {
+          if (!child.isMesh) return;
+          const name = (child.name || "").toLowerCase();
+          if (!nameMatches(name)) return;
+          child.getWorldPosition(tmp);
+          car.worldToLocal(tmp);
+          anchors.push(tmp.clone());
+        });
+
+        const frontThreshold = noseZ - size.z * 0.2;
+        const frontAnchors = anchors.filter((p) => p.z > frontThreshold);
+        if (frontAnchors.length >= 2) {
+          frontAnchors.sort((a, b) => a.x - b.x);
+          const left = frontAnchors[0].clone();
+          const right = frontAnchors[frontAnchors.length - 1].clone();
+          left.y = right.y = headlightHeight;
+          left.z = right.z = Math.max(left.z, right.z, noseZ - size.z * 0.02);
+          return [left, right];
+        }
+
+        if (frontAnchors.length === 1) {
+          const single = frontAnchors[0].clone();
+          const spread = Math.max(Math.abs(single.x), offsetX);
+          const left = new THREE.Vector3(-spread, headlightHeight, noseZ - size.z * 0.02);
+          const right = new THREE.Vector3(spread, headlightHeight, noseZ - size.z * 0.02);
+          return [left, right];
+        }
+
+        return [
+          new THREE.Vector3(-offsetX, headlightHeight, noseZ - size.z * 0.02),
+          new THREE.Vector3(offsetX, headlightHeight, noseZ - size.z * 0.02)
+        ];
+      };
+
+      const [anchorLeft, anchorRight] = getHeadlightAnchors();
+
+      const makeLight = (anchor) => {
         const spot = new THREE.SpotLight(0xffffff, 0, 54, THREE.MathUtils.degToRad(15), 0.6, 2);
-        spot.position.set(x, headlightHeight, noseZ - size.z * 0.015);
+        spot.position.copy(anchor);
         spot.target = target;
         spot.power = HEADLIGHT_POWER;
         spot.map = headlightCookie;
@@ -371,8 +413,8 @@
         return spot;
       };
 
-      const left = makeLight(-offsetX);
-      const right = makeLight(offsetX);
+      const left = makeLight(anchorLeft);
+      const right = makeLight(anchorRight);
       left.castShadow = true;
 
       const beams = {
