@@ -945,8 +945,8 @@
         const rbDesc = RAPIER.RigidBodyDesc.dynamic()
           .setTranslation(startPos.x, startPos.y, startPos.z)
           .setCanSleep(false)
-          .setLinearDamping(2.6) // lower for more glide, higher for tighter stop
-          .setAngularDamping(4.1); // lower for more spin, higher for stability
+          .setLinearDamping(2.15) // lower for more glide, higher for tighter stop
+          .setAngularDamping(3.8); // lower for more spin, higher for stability
         const rb = world.createRigidBody(rbDesc);
         if (DRIVE.ccd && rb.enableCcd) rb.enableCcd(true);
         const colliderDesc = RAPIER.ColliderDesc.cuboid(halfX, halfY, halfZ)
@@ -1302,11 +1302,11 @@
     let cameraShake = 0;
 
     const DRIVE = {
-      engineImpulse: 1.8,  // raise for snappier acceleration (arcade)
-      steerTorque: 0.6,    // raise for faster yaw response
-      maxSpeed: 11.5,
-      maxReverse: 5.2,
-      speedClamp: 0.42,    // higher = stronger speed cap impulse
+      engineImpulse: 3.2,  // raise for snappier acceleration (arcade)
+      steerTorque: 0.62,   // raise for faster yaw response
+      maxSpeed: 15.5,
+      maxReverse: 7.0,
+      speedClamp: 0.32,    // higher = stronger speed cap impulse
       sideGrip: 1.65,      // higher = less drift
       ccd: true,
       skidSideThreshold: 3.4,
@@ -1438,7 +1438,7 @@
 
       const rot = rb.rotation();
       tempQuat.set(rot.x, rot.y, rot.z, rot.w);
-      const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(tempQuat).normalize();
+      const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(tempQuat).normalize();
       const right = new THREE.Vector3(1, 0, 0).applyQuaternion(tempQuat).normalize();
       const velocity = rb.linvel();
       const vel = new THREE.Vector3(velocity.x, velocity.y, velocity.z);
@@ -1497,7 +1497,7 @@
         if (mesh === car) {
           const rot = rb.rotation();
           tempQuat.set(rot.x, rot.y, rot.z, rot.w);
-          const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(tempQuat);
+          const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(tempQuat);
           const vel = rb.linvel();
           const speed = forward.dot(new THREE.Vector3(vel.x, vel.y, vel.z));
           const rollDelta = (speed / (car.userData.wheelRadius || 1)) * dt;
