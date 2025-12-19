@@ -22,7 +22,12 @@ const NETWORK = {
   socket: null,
   id: null,
   reconnectTimer: null,
-  lastSend: 0
+  lastSend: 0,
+  seq: 0,
+  snapshotBuffer: [],
+  snapshotDelay: 0.12, // render delay (s) for interpolation smoothing
+  tickRate: 60,
+  snapshotRate: 20
 };
 
 function setNetStatus(text, online = false) {
@@ -1115,24 +1120,21 @@ function scheduleReconnect() {
   }, 2500);
 }
 
-function sendStateSnapshot() {
+function sendInput() {
   if (!NETWORK.socket || NETWORK.socket.readyState !== WebSocket.OPEN) return;
-  if (!car) return;
   const now = performance.now();
-  if (now - NETWORK.lastSend < 50) return; // ~20 Hz
+  if (now - NETWORK.lastSend < 33) return; // ~30 Hz input
   NETWORK.lastSend = now;
-  const yaw = car.rotation.y;
-  const speed = car.userData.lastSpeed || 0;
-  const steerVisual = -clamp(inputX, -1, 1) * (Math.PI / 7);
+  const axes = keyboardAxes();
+  const steer = clamp(inputX || axes.x || joyX, -1, 1);
+  const throttle = clamp(-(inputY || axes.y || joyY), -1, 1);
   const payload = {
-    type: "state",
-    state: {
-      p: [Number(car.position.x.toFixed(3)), Number(car.position.y.toFixed(3)), Number(car.position.z.toFixed(3))],
-      y: Number(yaw.toFixed(4)),
-      s: Number(speed.toFixed(3)),
-      st: Number(steerVisual.toFixed(4)),
-      b: Boolean(car.userData.brakeActive)
-    }
+    type: "input",
+    seq: ++NETWORK.seq,
+    t: now,
+    steer,
+    throttle,
+    brake: throttle < 0
   };
   NETWORK.socket.send(JSON.stringify(payload));
 }
@@ -1145,26 +1147,33 @@ function handleMessage(evt) {
     return;
   }
 
-  if (data.type === "hello") {
+  if (data.type === "welcome") {
     NETWORK.id = data.id;
+    NETWORK.tickRate = data.tickRate || NETWORK.tickRate;
+    NETWORK.snapshotRate = data.snapshotRate || NETWORK.snapshotRate;
+    NETWORK.mode = "online-authoritative";
     setNetStatus(`Online: ${resolveServerHost()}`, true);
     ensureLocalColor();
+    if (Array.isArray(data.props)) {
+      spawnServerProps(data.props);
+    }
     if (Array.isArray(data.players)) {
       data.players.forEach((p) => {
-        if (!remotePlayers.has(p.id)) spawnRemotePlayer(p.id, p.state).catch((err) => console.warn("Remote spawn failed", err));
-        else applyRemoteState(p.id, p.state);
+        spawnRemotePlayer(p.id, p.initial)?.catch?.(() => {});
       });
     }
-    sendStateSnapshot();
-  } else if (data.type === "state" && data.id && data.id !== NETWORK.id) {
-    if (!remotePlayers.has(data.id)) spawnRemotePlayer(data.id, data.state).catch((err) => console.warn("Remote spawn failed", err));
-    else applyRemoteState(data.id, data.state);
-  } else if (data.type === "world-state") {
-    applyWorldState(data.players);
+    if (!car) {
+      setupPlayerCar(false, false, data.initial).catch(() => {});
+    }
+  } else if (data.type === "snapshot") {
+    if (data.players?.length) {
+      NETWORK.snapshotBuffer.push({ ...data, receivedAt: performance.now() });
+      if (NETWORK.snapshotBuffer.length > 60) NETWORK.snapshotBuffer.shift();
+    }
   } else if (data.type === "player-left" && data.id) {
     removeRemotePlayer(data.id);
   } else if (data.type === "player-joined" && data.id && data.id !== NETWORK.id) {
-    if (!remotePlayers.has(data.id)) spawnRemotePlayer(data.id, buildSafeSpawnState(data.id)).catch((err) => console.warn("Remote spawn failed", err));
+    if (!remotePlayers.has(data.id)) spawnRemotePlayer(data.id, data.initial).catch((err) => console.warn("Remote spawn failed", err));
   }
 }
 
@@ -1183,10 +1192,10 @@ async function initNetwork() {
   const ws = new WebSocket(`${protocol}://${host}/ws`);
   ws.addEventListener("open", () => {
     NETWORK.socket = ws;
-    NETWORK.mode = "online";
+    NETWORK.mode = "online-authoritative";
     NETWORK.lastSend = 0;
     setNetStatus(`Online: ${host}`, true);
-    sendStateSnapshot();
+    sendInput();
   });
   ws.addEventListener("message", handleMessage);
   ws.addEventListener("close", () => {
