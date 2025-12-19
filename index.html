@@ -333,9 +333,13 @@
       const noseZ = box.max.z;
       const offsetX = Math.max(size.x * 0.28, size.x * 0.12);
 
-      const target = new THREE.Object3D();
-      target.position.set(0, headlightHeight + size.y * 0.12, noseZ + size.z * 0.68);
-      car.add(target);
+      const targetOffsetY = headlightHeight + size.y * 0.12;
+      const targetOffsetZ = noseZ + size.z * 0.68;
+      const targetLeft = new THREE.Object3D();
+      targetLeft.position.set(anchorLeft.x, targetOffsetY, targetOffsetZ);
+      const targetRight = new THREE.Object3D();
+      targetRight.position.set(anchorRight.x, targetOffsetY, targetOffsetZ);
+      car.add(targetLeft, targetRight);
 
       const createBeam = (distance, angle) => {
         const radius = Math.tan(angle) * distance;
@@ -398,7 +402,7 @@
 
       const [anchorLeft, anchorRight] = getHeadlightAnchors();
 
-      const makeLight = (anchor) => {
+      const makeLight = (anchor, target) => {
         const spot = new THREE.SpotLight(0xffffff, 0, 54, THREE.MathUtils.degToRad(15), 0.6, 2);
         spot.position.copy(anchor);
         spot.target = target;
@@ -413,8 +417,8 @@
         return spot;
       };
 
-      const left = makeLight(anchorLeft);
-      const right = makeLight(anchorRight);
+      const left = makeLight(anchorLeft, targetLeft);
+      const right = makeLight(anchorRight, targetRight);
       left.castShadow = true;
 
       const beams = {
@@ -423,13 +427,15 @@
       };
       beams.left.position.copy(left.position);
       beams.right.position.copy(right.position);
-      const worldTarget = new THREE.Vector3();
-      target.getWorldPosition(worldTarget);
-      beams.left.lookAt(worldTarget);
-      beams.right.lookAt(worldTarget);
+      const worldTargetLeft = new THREE.Vector3();
+      const worldTargetRight = new THREE.Vector3();
+      targetLeft.getWorldPosition(worldTargetLeft);
+      targetRight.getWorldPosition(worldTargetRight);
+      beams.left.lookAt(worldTargetLeft);
+      beams.right.lookAt(worldTargetRight);
       car.add(beams.left, beams.right);
 
-      return { left, right, target, beams };
+      return { left, right, targetLeft, targetRight, beams };
     }
 
     function attachRearLights(car, existingTailMeshes = [], tailLightMaterials = []) {
@@ -884,7 +890,8 @@
           rig.right.visible = on;
           rig.left.power = on ? HEADLIGHT_POWER : 0;
           rig.right.power = on ? HEADLIGHT_POWER : 0;
-          if (rig.target) rig.target.visible = on;
+          if (rig.targetLeft) rig.targetLeft.visible = on;
+          if (rig.targetRight) rig.targetRight.visible = on;
           if (rig.beams) {
             rig.beams.left.visible = false;
             rig.beams.right.visible = false;
