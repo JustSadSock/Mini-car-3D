@@ -1412,8 +1412,8 @@
     const DRIVE = {
       engineImpulse: 5.6,  // raise for snappier acceleration (arcade)
       steerTorque: 0.64,   // raise for faster yaw response
-      maxSpeed: 24.0,
-      maxReverse: 10.2,
+      maxSpeed: 10.2,      // forward top speed (swap with reverse for request)
+      maxReverse: 24.0,    // reverse top speed (faster per request)
       speedClamp: 0.3,     // higher = stronger speed cap impulse
       sideGrip: 1.7,       // higher = less drift
       ccd: true,
