@@ -1023,6 +1023,18 @@ function applyRemoteState(id, state) {
   player.target = target;
 }
 
+function applyWorldState(players) {
+  if (!Array.isArray(players)) return;
+  players.forEach((p) => {
+    if (!p?.id || p.id === NETWORK.id) return;
+    if (!remotePlayers.has(p.id)) {
+      spawnRemotePlayer(p.id, p.state).catch((err) => console.warn("Remote spawn failed", err));
+    } else {
+      applyRemoteState(p.id, p.state);
+    }
+  });
+}
+
 function updateRemotePlayers(dt) {
   const follow = 1 - Math.pow(0.0015, dt);
   for (const player of remotePlayers.values()) {
@@ -1147,6 +1159,8 @@ function handleMessage(evt) {
   } else if (data.type === "state" && data.id && data.id !== NETWORK.id) {
     if (!remotePlayers.has(data.id)) spawnRemotePlayer(data.id, data.state).catch((err) => console.warn("Remote spawn failed", err));
     else applyRemoteState(data.id, data.state);
+  } else if (data.type === "world-state") {
+    applyWorldState(data.players);
   } else if (data.type === "player-left" && data.id) {
     removeRemotePlayer(data.id);
   } else if (data.type === "player-joined" && data.id && data.id !== NETWORK.id) {

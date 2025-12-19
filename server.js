@@ -8,6 +8,7 @@ const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
 const PUBLIC_DIR = __dirname;
 const WS_PATH = '/ws';
 const clients = new Map();
+const SNAPSHOT_INTERVAL = 100; // ms
 
 function log(...args) {
   const ts = new Date().toISOString();
@@ -164,6 +165,15 @@ wss.on('connection', (ws) => {
     log('client disconnected', id, 'total:', clients.size);
   });
 });
+
+setInterval(() => {
+  if (clients.size === 0) return;
+  const payload = { type: 'world-state', players: [] };
+  for (const [id, client] of clients.entries()) {
+    payload.players.push({ id, state: snapshotState(client.state) });
+  }
+  broadcast(payload);
+}, SNAPSHOT_INTERVAL);
 
 const HEARTBEAT_MS = 15000;
 setInterval(() => {
