@@ -1302,11 +1302,11 @@
     let cameraShake = 0;
 
     const DRIVE = {
-      engineImpulse: 3.2,  // raise for snappier acceleration (arcade)
+      engineImpulse: 4.4,  // raise for snappier acceleration (arcade)
       steerTorque: 0.62,   // raise for faster yaw response
-      maxSpeed: 15.5,
-      maxReverse: 7.0,
-      speedClamp: 0.32,    // higher = stronger speed cap impulse
+      maxSpeed: 20.0,
+      maxReverse: 9.0,
+      speedClamp: 0.36,    // higher = stronger speed cap impulse
       sideGrip: 1.65,      // higher = less drift
       ccd: true,
       skidSideThreshold: 3.4,
@@ -1424,6 +1424,10 @@
       // Prefer joystick; if idle, use keyboard.
       let ax = joyX;
       let ay = joyY;
+      if (joyActive && isCoarsePointer) {
+        ax = -joyX; // invert joystick axes to match model-forward orientation
+        ay = -joyY;
+      }
       if ((!joyActive || !isCoarsePointer) && ax === 0 && ay === 0) {
         const k = keyboardAxes();
         ax = k.x;
