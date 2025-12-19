@@ -8,6 +8,7 @@ const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
 const PUBLIC_DIR = __dirname;
 const WS_PATH = '/ws';
 const clients = new Map();
+const WORLD_SEED = 20240525;
 
 function log(...args) {
   const ts = new Date().toISOString();
@@ -118,6 +119,7 @@ function snapshotState(state) {
   return {
     p: state?.p || [0, 0, 0],
     y: state?.y || 0,
+    q: state?.q || [0, 0, 0, 1],
     s: state?.s || 0,
     st: state?.st || 0,
     b: Boolean(state?.b),
@@ -136,7 +138,7 @@ wss.on('connection', (ws) => {
     others.push({ id: otherId, state: snapshotState(client.state) });
   }
 
-  ws.send(JSON.stringify({ type: 'hello', id, players: others }));
+  ws.send(JSON.stringify({ type: 'hello', id, players: others, worldSeed: WORLD_SEED }));
   broadcast({ type: 'player-joined', id }, id);
 
   ws.on('message', (raw) => {
