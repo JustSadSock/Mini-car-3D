@@ -159,7 +159,11 @@
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setClearColor(0x0b0f16, 1);
     renderer.outputEncoding = THREE.sRGBEncoding;
+    renderer.useLegacyLights = false;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.28;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     wrap.appendChild(renderer.domElement);
 
     // --- Scene / Camera ---
@@ -191,6 +195,7 @@
     const ground = new THREE.Mesh(groundGeo, groundMat);
     ground.rotation.x = -Math.PI / 2;
     ground.position.y = 0;
+    ground.receiveShadow = true;
     scene.add(ground);
 
     const grid = new THREE.GridHelper(220, 44, 0x3a4454, 0x2a3342);
@@ -240,6 +245,245 @@
       tex.magFilter = THREE.LinearFilter;
       tex.anisotropy = 4;
       return tex;
+    }
+
+    function makeHeadlightCookieTexture(size = 256) {
+      const canvas = document.createElement("canvas");
+      canvas.width = canvas.height = size;
+      const ctx = canvas.getContext("2d");
+
+      ctx.fillStyle = "black";
+      ctx.fillRect(0, 0, size, size);
+
+      ctx.save();
+      ctx.translate(size / 2, size * 0.62);
+      ctx.scale(1.12, 0.86);
+      const radius = size * 0.46;
+      const grad = ctx.createRadialGradient(0, 0, radius * 0.08, 0, 0, radius);
+      grad.addColorStop(0, "rgba(255,255,255,1)");
+      grad.addColorStop(0.32, "rgba(255,255,255,0.82)");
+      grad.addColorStop(0.68, "rgba(255,255,255,0.2)");
+      grad.addColorStop(1, "rgba(255,255,255,0)");
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, radius * 1.08, radius, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      ctx.globalCompositeOperation = "destination-out";
+      const cutHeight = size * 0.32;
+      const cut = ctx.createLinearGradient(0, 0, 0, cutHeight);
+      cut.addColorStop(0, "rgba(0,0,0,1)");
+      cut.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.fillStyle = cut;
+      ctx.fillRect(0, 0, size, cutHeight);
+      ctx.globalCompositeOperation = "source-over";
+
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.wrapS = texture.wrapT = THREE.ClampToEdgeWrapping;
+      texture.minFilter = THREE.LinearFilter;
+      texture.magFilter = THREE.LinearFilter;
+      texture.needsUpdate = true;
+      return texture;
+    }
+
+    function attachHeadlights(car) {
+      const cookie = attachHeadlights.cookie || (attachHeadlights.cookie = makeHeadlightCookieTexture());
+
+      car.updateMatrixWorld(true);
+      const box = new THREE.Box3().setFromObject(car);
+      const size = new THREE.Vector3();
+      const center = new THREE.Vector3();
+      box.getSize(size);
+      box.getCenter(center);
+
+      const headlightY = box.min.y + size.y * 0.55;
+      const frontZ = box.max.z - size.z * 0.04;
+      const xOffset = Math.max(size.x * 0.18, 0.18);
+
+      const makeTarget = (offsetX = 0) => {
+        const t = new THREE.Object3D();
+        t.position.set(offsetX, headlightY + size.y * 0.08, frontZ + size.z * 0.6);
+        car.add(t);
+        return t;
+      };
+
+      const targetLeft = makeTarget(-xOffset);
+      const targetRight = makeTarget(xOffset);
+
+      const distance = 48;
+      const angle = THREE.MathUtils.degToRad(14);
+      const penumbra = 0.5;
+      const basePower = 1500;
+      const shadowBias = -0.0002;
+
+      const createSpot = (offsetX, target, castShadow = false) => {
+        const spot = new THREE.SpotLight(0xffffff);
+        spot.power = basePower;
+        spot.distance = distance;
+        spot.angle = angle;
+        spot.decay = 2;
+        spot.penumbra = penumbra;
+        spot.position.set(offsetX, headlightY, frontZ);
+        spot.target = target;
+        spot.castShadow = castShadow;
+        spot.map = cookie;
+        spot.userData.basePower = basePower;
+        spot.shadow.mapSize.set(512, 512);
+        spot.shadow.bias = shadowBias;
+        spot.shadow.camera.near = 0.2;
+        spot.shadow.camera.far = distance + 10;
+        car.add(spot);
+        return spot;
+      };
+
+      const left = createSpot(-xOffset, targetLeft, true);
+      const right = createSpot(xOffset, targetRight, false);
+
+      return { left, right, target: { left: targetLeft, right: targetRight }, beams: [] };
+    }
+
+    function attachRearLights(car) {
+      car.updateMatrixWorld(true);
+      const box = new THREE.Box3().setFromObject(car);
+      const size = new THREE.Vector3();
+      const center = new THREE.Vector3();
+      box.getSize(size);
+      box.getCenter(center);
+
+      const rearZ = box.min.z + size.z * 0.04;
+      const lightY = box.min.y + size.y * 0.46;
+      const xOffset = Math.max(size.x * 0.2, 0.18);
+
+      const findLightMeshes = (predicate) => {
+        const meshes = [];
+        car.traverse((child) => {
+          if (!child.isMesh) return;
+          const name = (child.name || "").toLowerCase();
+          if (predicate(name)) meshes.push(child);
+        });
+        return meshes;
+      };
+
+      const tailCandidates = findLightMeshes((name) =>
+        name.includes("tail") || name.includes("rear") || name.includes("brake") || name.includes("stop")
+      );
+
+      const assignPair = (meshes, fallbackFactory) => {
+        if (meshes.length >= 2) {
+          const sorted = meshes
+            .map((m) => ({ mesh: m, x: m.getWorldPosition(new THREE.Vector3()).x }))
+            .sort((a, b) => a.x - b.x)
+            .map((entry) => entry.mesh);
+          return { left: sorted[0], right: sorted[sorted.length - 1] };
+        }
+        return fallbackFactory();
+      };
+
+      const makeTailMeshes = () => {
+        const geo = new THREE.BoxGeometry(0.18, 0.1, 0.02);
+        const mat = new THREE.MeshStandardMaterial({
+          color: 0x220000,
+          emissive: 0x9c0d0d,
+          emissiveIntensity: 0.9,
+          roughness: 0.65,
+          metalness: 0.08,
+        });
+        const left = new THREE.Mesh(geo, mat.clone());
+        const right = new THREE.Mesh(geo.clone(), mat.clone());
+        [left, right].forEach((mesh, i) => {
+          mesh.position.set(i === 0 ? -xOffset : xOffset, lightY, rearZ - 0.012);
+          mesh.rotation.y = Math.PI;
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+          car.add(mesh);
+        });
+        return { left, right };
+      };
+
+      const tail = assignPair(tailCandidates, makeTailMeshes);
+      const targetBack = new THREE.Object3D();
+      targetBack.position.set(0, lightY + size.y * 0.08, rearZ - size.z * 0.55);
+      car.add(targetBack);
+
+      const baseTailPower = 110;
+      const baseDistance = 9.5;
+      const baseAngle = THREE.MathUtils.degToRad(20);
+      const basePenumbra = 0.65;
+
+      const makeRearSpot = (offsetX) => {
+        const spot = new THREE.SpotLight(0xff2b2b);
+        spot.power = 0;
+        spot.userData.basePower = baseTailPower;
+        spot.distance = baseDistance;
+        spot.angle = baseAngle;
+        spot.decay = 2;
+        spot.penumbra = basePenumbra;
+        spot.position.set(offsetX, lightY, rearZ - 0.04);
+        const target = targetBack.clone();
+        target.position.x = offsetX;
+        car.add(target);
+        spot.target = target;
+        spot.castShadow = false;
+        car.add(spot);
+        return spot;
+      };
+
+      const brakeLightL = makeRearSpot(-xOffset * 0.9);
+      const brakeLightR = makeRearSpot(xOffset * 0.9);
+
+      const rear = {
+        leftMesh: tail.left,
+        rightMesh: tail.right,
+        brakeLightL,
+        brakeLightR,
+        brakeFactor: 0,
+        prevSpeed: 0,
+        isBraking: false,
+      };
+
+      return rear;
+    }
+
+    function updateRearLights(rear, dt, speed, targetSpeed, throttle, lightsOn = true) {
+      if (!rear) return { braking: false };
+      const safeDt = Math.max(dt, 0.0001);
+      const accel = (speed - (rear.prevSpeed ?? speed)) / safeDt;
+
+      const brakingByAccel = speed > 0.6 && accel < -1.2;
+      const brakingByInput = speed > 0.6 && throttle < -0.1;
+      const braking = brakingByAccel || brakingByInput;
+
+      const lerpAmt = THREE.MathUtils.clamp(dt * 6.5, 0, 1);
+      rear.brakeFactor = THREE.MathUtils.lerp(rear.brakeFactor, braking ? 1 : 0, lerpAmt);
+
+      const tailBase = lightsOn ? 0.9 : 0.0;
+      const brakeBoost = 3.6;
+
+      const tailIntensity = tailBase + rear.brakeFactor * brakeBoost;
+
+      const updateMeshIntensity = (mesh, intensity) => {
+        if (!mesh || !mesh.material) return;
+        const mat = mesh.material;
+        if (!mat.emissive) mat.emissive = new THREE.Color(0x000000);
+        mat.emissiveIntensity = intensity;
+        mat.visible = intensity > 0.02;
+      };
+
+      updateMeshIntensity(rear.leftMesh, tailIntensity);
+      updateMeshIntensity(rear.rightMesh, tailIntensity);
+
+      const brakePower = rear.brakeFactor * rear.brakeLightL.userData.basePower + (lightsOn ? 28 : 0);
+
+      [rear.brakeLightL, rear.brakeLightR].forEach((light) => {
+        light.power = brakePower;
+        light.visible = light.power > 0.01;
+      });
+
+      rear.prevSpeed = speed;
+      rear.isBraking = braking;
+      return { braking };
     }
 
     // --- Car (GLB model) ---
@@ -480,9 +724,18 @@
       const car = cloneSkeleton(baseScene);
       cloneMaterials(car);
 
+      car.traverse((child) => {
+        if (child.isMesh) {
+          child.castShadow = true;
+          child.receiveShadow = true;
+        }
+      });
+
       const { wheelRig, radius } = categorizeWheels(car);
       const { headlights, tailLights } = collectLightMaterials(car);
       const bodyMaterials = collectBodyMaterials(car);
+      const headlightRig = attachHeadlights(car);
+      const rearLights = attachRearLights(car);
 
       const headlightIntensities = headlights.map((m) =>
         typeof m.emissiveIntensity === "number" ? m.emissiveIntensity : 1.25
@@ -495,6 +748,10 @@
       car.userData.wheelRadius = radius;
       car.userData.lightsOn = true;
       car.userData.brakeActive = false;
+      car.userData.headlights = headlightRig;
+      car.userData.rearLights = rearLights;
+      car.userData.lastSpeed = 0;
+      car.userData.lastTargetSpeed = 0;
 
       car.userData.setPlayerColor = (color) => {
         bodyMaterials.forEach((mat) => {
@@ -508,19 +765,50 @@
       };
 
       car.userData.applyLights = (brake = false) => {
+        const lightsOn = car.userData.lightsOn;
+        const brakeFactor = car.userData.rearLights ? car.userData.rearLights.brakeFactor : (brake ? 1 : 0);
         headlights.forEach((mat, i) => {
           if (typeof mat.emissiveIntensity === "number") {
-            mat.emissiveIntensity = car.userData.lightsOn ? headlightIntensities[i] : 0.0;
+            mat.emissiveIntensity = lightsOn ? headlightIntensities[i] : 0.0;
           }
-          mat.visible = car.userData.lightsOn;
+          mat.visible = lightsOn;
         });
         tailLights.forEach((mat, i) => {
-          const base = tailLightIntensities[i];
+          const base = lightsOn ? tailLightIntensities[i] : 0.04;
           if (typeof mat.emissiveIntensity === "number") {
-            mat.emissiveIntensity = car.userData.lightsOn || brake ? (brake ? base * 2.4 : base) : 0.02;
+            mat.emissiveIntensity = base + brakeFactor * (tailLightIntensities[i] * 2.8);
           }
-          mat.visible = car.userData.lightsOn || brake;
+          mat.visible = lightsOn || brakeFactor > 0.02;
         });
+
+        if (headlightRig) {
+          const { left, right, beams } = headlightRig;
+          if (left) {
+            left.visible = lightsOn;
+            left.power = lightsOn ? left.userData.basePower : 0;
+          }
+          if (right) {
+            right.visible = lightsOn;
+            right.power = lightsOn ? right.userData.basePower : 0;
+          }
+          beams?.forEach((beam) => {
+            beam.visible = lightsOn;
+            if (beam.material && typeof beam.userData.baseOpacity === "number") {
+              beam.material.opacity = lightsOn ? beam.userData.baseOpacity : 0;
+            }
+          });
+        }
+
+        if (car.userData.rearLights) {
+          updateRearLights(
+            car.userData.rearLights,
+            0.016,
+            car.userData.lastSpeed || 0,
+            car.userData.lastTargetSpeed || 0,
+            0,
+            lightsOn
+          );
+        }
 
       };
 
@@ -626,6 +914,18 @@
 
         const rollDelta = (player.target.speed / (player.mesh.userData.wheelRadius || 1)) * dt;
         applyWheelPose(player.mesh, player.target.steer || 0, rollDelta);
+        player.mesh.userData.lastSpeed = player.target.speed || 0;
+        player.mesh.userData.lastTargetSpeed = player.target.speed || 0;
+        if (player.mesh.userData.rearLights) {
+          updateRearLights(
+            player.mesh.userData.rearLights,
+            dt,
+            player.target.speed || 0,
+            player.target.speed || 0,
+            player.target.brake ? -1 : Math.sign(player.target.speed || 0),
+            player.mesh.userData.lightsOn ?? true
+          );
+        }
         player.mesh.userData.brakeActive = Boolean(player.target.brake);
         player.mesh.userData.applyLights?.(player.mesh.userData.brakeActive);
       }
@@ -911,6 +1211,9 @@
         state.speed = approach(state.speed, 0, DRAG * dt);
       }
 
+      car.userData.lastSpeed = state.speed;
+      car.userData.lastTargetSpeed = targetSpeed;
+
       // Turning scales with speed (no rotation while stopped)
       const speedFactor = clamp(Math.abs(state.speed) / MAX_FWD, 0, 1);
       const steer = state.speed < -0.05 ? -ax : ax;
@@ -944,8 +1247,17 @@
       const look = camLookAhead.clone().applyEuler(car.rotation).add(car.position);
       camera.lookAt(look);
 
-      const braking = state.speed > 0.2 && targetSpeed < state.speed - 0.12;
-      const reversing = state.speed < -0.15;
+      const rearStatus = updateRearLights(
+        car.userData.rearLights,
+        dt,
+        state.speed,
+        targetSpeed,
+        ay,
+        car.userData.lightsOn
+      );
+
+      const braking = rearStatus?.braking ?? (state.speed > 0.2 && targetSpeed < state.speed - 0.12);
+      const reversing = rearStatus?.reversing ?? (state.speed < -0.15);
       state.brakeActive = braking || reversing;
       car.userData.brakeActive = state.brakeActive;
       car.userData.applyLights?.(state.brakeActive);
