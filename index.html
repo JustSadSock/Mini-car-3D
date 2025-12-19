@@ -836,7 +836,7 @@
       });
     }
 
-    async function makeCar(isPlayer = true) {
+    async function makeCar(isPlayer = true, withPhysics = true) {
       const baseScene = await carModelPromise;
       const car = cloneSkeleton(baseScene);
       cloneMaterials(car);
@@ -936,28 +936,35 @@
       const size = bbox.getSize(new THREE.Vector3());
       const center = bbox.getCenter(new THREE.Vector3());
 
-      if (isPlayer) {
+      if (withPhysics) {
         const halfX = size.x * 0.46; // widen for truer hitbox vs model
         const halfY = size.y * 0.3;  // taller collider = less bottoming out
         const halfZ = size.z * 0.48; // near full length so props register hits
 
         const startPos = car.userData.initialPosition || new THREE.Vector3(0, size.y * 0.5, 0);
-        const rbDesc = RAPIER.RigidBodyDesc.dynamic()
-          .setTranslation(startPos.x, startPos.y, startPos.z)
-          .setCanSleep(false)
-          .setLinearDamping(1.75) // lower for more glide, higher for tighter stop
-          .setAngularDamping(3.5); // lower for more spin, higher for stability
+        const rbDesc = isPlayer
+          ? RAPIER.RigidBodyDesc.dynamic()
+              .setTranslation(startPos.x, startPos.y, startPos.z)
+              .setCanSleep(false)
+              .setLinearDamping(1.75) // lower for more glide, higher for tighter stop
+              .setAngularDamping(3.5) // lower for more spin, higher for stability
+          : RAPIER.RigidBodyDesc.kinematicPositionBased()
+              .setTranslation(startPos.x, startPos.y, startPos.z)
+              .setCanSleep(false);
         const rb = world.createRigidBody(rbDesc);
-        if (DRIVE.ccd && rb.enableCcd) rb.enableCcd(true);
+        if (DRIVE.ccd && rb.enableCcd && isPlayer) rb.enableCcd(true);
         const colliderDesc = RAPIER.ColliderDesc.cuboid(halfX, halfY, halfZ)
           .setTranslation(center.x - car.position.x, center.y - car.position.y - size.y * 0.08, center.z - car.position.z)
           .setFriction(1.2) // more friction = grippier tabletop feel
           .setRestitution(0.26) // less bounce = calmer toy
           .setDensity(0.72);
         const collider = world.createCollider(colliderDesc, rb);
-        registerBody(rb, car, collider, { type: "car", dynamic: true });
-        playerPhysics.body = rb;
-        playerPhysics.collider = collider;
+        registerBody(rb, car, collider, { type: isPlayer ? "car" : "car-remote", dynamic: true });
+        car.userData.physics = { body: rb, collider };
+        if (isPlayer) {
+          playerPhysics.body = rb;
+          playerPhysics.collider = collider;
+        }
         car.position.copy(startPos);
       }
 
@@ -1013,7 +1020,7 @@
       if (remotePlayers.has(id)) return;
       const placeholder = { mesh: null, target: null, loading: true };
       remotePlayers.set(id, placeholder);
-      const ghost = await makeCar(false);
+      const ghost = await makeCar(false, true);
       colorizeCar(ghost, id);
       ghost.userData.isRemote = true;
       ghost.userData.applyLights?.(false);
@@ -1054,10 +1061,23 @@
       const follow = 1 - Math.pow(0.0015, dt);
       for (const player of remotePlayers.values()) {
         if (!player.mesh || !player.target) continue;
-        player.mesh.position.lerp(player.target.position, follow);
-        const currentYaw = player.mesh.rotation.y;
-        const deltaYaw = ((player.target.yaw - currentYaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
-        player.mesh.rotation.y = currentYaw + deltaYaw * follow;
+        const rb = player.mesh.userData.physics?.body;
+        const currentPos = rb ? rb.translation() : player.mesh.position;
+
+        const lerpPos = new THREE.Vector3(currentPos.x, currentPos.y, currentPos.z)
+          .lerp(player.target.position, follow);
+        const currentYawVal = player.mesh.rotation.y;
+        const deltaYaw = ((player.target.yaw - currentYawVal + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+        const lerpYaw = currentYawVal + deltaYaw * follow;
+        const lerpQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), lerpYaw);
+
+        if (rb?.setNextKinematicTranslation) {
+          rb.setNextKinematicTranslation({ x: lerpPos.x, y: lerpPos.y, z: lerpPos.z });
+          rb.setNextKinematicRotation({ x: lerpQuat.x, y: lerpQuat.y, z: lerpQuat.z, w: lerpQuat.w });
+        }
+
+        player.mesh.position.copy(lerpPos);
+        player.mesh.quaternion.copy(lerpQuat);
 
         const rollDelta = (player.target.speed / (player.mesh.userData.wheelRadius || 1)) * dt;
         applyWheelPose(player.mesh, player.target.steer || 0, rollDelta);
@@ -1427,7 +1447,7 @@
       let ax = joyX;
       let ay = joyY;
       if (joyActive && isCoarsePointer) {
-        ax = -joyX; // invert joystick axes to match model-forward orientation
+        ax = joyX; // invert turn handling globally to keep on-screen directions natural
         ay = -joyY;
       }
       if ((!joyActive || !isCoarsePointer) && ax === 0 && ay === 0) {
@@ -1458,7 +1478,7 @@
       const speedFactor = clamp(Math.abs(speedAlong) / DRIVE.maxSpeed, 0, 1);
       const torqueScale = 0.45 + speedFactor * 0.55;
       const steerSign = speedAlong < -0.45 ? -1 : 1; // flip when reversing to match joystick feel
-      rb.applyTorqueImpulse({ x: 0, y: ax * steerSign * DRIVE.steerTorque * torqueScale, z: 0 }, true);
+      rb.applyTorqueImpulse({ x: 0, y: -ax * steerSign * DRIVE.steerTorque * torqueScale, z: 0 }, true);
 
       // Toy-like sideways grip cheat
       const sideSpeed = vel.dot(right);
@@ -1527,7 +1547,7 @@
           const vel = rb.linvel();
           const speed = forward.dot(new THREE.Vector3(vel.x, vel.y, vel.z));
           const rollDelta = (speed / (car.userData.wheelRadius || 1)) * lastPhysicsDt;
-          const steerVisual = -clamp(inputX, -1, 1) * (Math.PI / 7);
+          const steerVisual = clamp(-inputX, -1, 1) * (Math.PI / 7);
           applyWheelPose(car, steerVisual, rollDelta);
         }
       });
