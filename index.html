@@ -157,7 +157,7 @@
     await RAPIER.init();
     const FIXED_DT = 1 / 60;
     const MAX_ACCUM = 0.25; // avoid spiral of death
-    const world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
+    const world = new RAPIER.World({ x: 0, y: -12.8, z: 0 }); // stronger gravity = quicker toy fall
     const eventQueue = new RAPIER.EventQueue(true);
 
     const rigidMeshes = new Map(); // rbHandle -> mesh
@@ -1012,14 +1012,17 @@
               .setTranslation(startPos.x, startPos.y, startPos.z)
               .setRotation({ x: startRot.x, y: startRot.y, z: startRot.z, w: startRot.w })
               .setCanSleep(false)
-              .setLinearDamping(1.75) // lower for more glide, higher for tighter stop
-              .setAngularDamping(3.5) // lower for more spin, higher for stability
+              .setLinearDamping(1.4) // lower for more glide (also faster fall), higher for tighter stop
+              .setAngularDamping(3.2) // lower for more spin, higher for stability
           : RAPIER.RigidBodyDesc.kinematicPositionBased()
               .setTranslation(startPos.x, startPos.y, startPos.z)
               .setRotation({ x: startRot.x, y: startRot.y, z: startRot.z, w: startRot.w })
               .setCanSleep(false);
         const rb = world.createRigidBody(rbDesc);
         if (DRIVE.ccd && rb.enableCcd && isPlayer) rb.enableCcd(true);
+        if (rb.setGravityScale && isPlayer) {
+          rb.setGravityScale(1.2, true); // >1 = stronger pull-down for snappier drops
+        }
         const colliderDesc = RAPIER.ColliderDesc.cuboid(halfX, halfY, halfZ)
           .setTranslation(center.x - car.position.x, center.y - car.position.y - size.y * 0.08, center.z - car.position.z)
           .setFriction(1.2) // more friction = grippier tabletop feel
@@ -1538,6 +1541,10 @@
         ay = k.y;
       }
 
+      const DEADZONE = 0.06;
+      if (Math.abs(ax) < DEADZONE) ax = 0;
+      if (Math.abs(ay) < DEADZONE) ay = 0;
+
       const INPUT_ACCEL = 6.0;
       inputX = approach(inputX, ax, INPUT_ACCEL * dt);
       inputY = approach(inputY, ay, INPUT_ACCEL * dt);
@@ -1564,17 +1571,24 @@
 
       // Toy-like sideways grip cheat
       const sideSpeed = vel.dot(right);
-      const sideImpulse = right.clone().multiplyScalar(-sideSpeed * DRIVE.sideGrip);
-      rb.applyImpulse(sideImpulse, true);
+      const sideMagnitude = Math.abs(sideSpeed);
+      if (sideMagnitude > 0.02) {
+        const gripScale = clamp(sideMagnitude / 6.5, 0.25, 1); // lower = smoother snaps, higher = tighter drift kill
+        const sideImpulse = right.clone().multiplyScalar(-sideSpeed * DRIVE.sideGrip * gripScale);
+        rb.applyImpulse(sideImpulse, true);
+      }
 
       // Extra yaw/roll stabilizer to keep toy car planted
       const ang = rb.angvel();
-      rb.applyTorqueImpulse({ x: -ang.x * 0.04, y: -ang.y * 0.08, z: -ang.z * 0.04 }, true);
+      if (Math.abs(ang.x) + Math.abs(ang.y) + Math.abs(ang.z) > 0.01) {
+        rb.applyTorqueImpulse({ x: -ang.x * 0.035, y: -ang.y * 0.08, z: -ang.z * 0.035 }, true);
+      }
 
       const speed = vel.length();
       const forwardMax = speedAlong >= 0 ? DRIVE.maxSpeed : DRIVE.maxReverse;
-      if (speed > forwardMax) {
-        const clampFactor = (speed - forwardMax) * DRIVE.speedClamp;
+      if (speed > forwardMax + 0.35) {
+        const over = speed - forwardMax;
+        const clampFactor = over * DRIVE.speedClamp;
         const clampImpulse = vel.clone().normalize().multiplyScalar(clampFactor);
         rb.applyImpulse(clampImpulse.multiplyScalar(-1), true);
       }
