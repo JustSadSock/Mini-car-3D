@@ -302,9 +302,15 @@
       const frontZ = box.max.z - size.z * 0.04;
       const xOffset = Math.max(size.x * 0.18, 0.18);
 
-      const target = new THREE.Object3D();
-      target.position.set(0, headlightY + size.y * 0.08, frontZ + size.z * 0.6);
-      car.add(target);
+      const makeTarget = (offsetX = 0) => {
+        const t = new THREE.Object3D();
+        t.position.set(offsetX, headlightY + size.y * 0.08, frontZ + size.z * 0.6);
+        car.add(t);
+        return t;
+      };
+
+      const targetLeft = makeTarget(-xOffset * 0.35);
+      const targetRight = makeTarget(xOffset * 0.35);
 
       const distance = 48;
       const angle = THREE.MathUtils.degToRad(14);
@@ -312,7 +318,7 @@
       const basePower = 1500;
       const shadowBias = -0.0002;
 
-      const createSpot = (offsetX, castShadow = false) => {
+      const createSpot = (offsetX, target, castShadow = false) => {
         const spot = new THREE.SpotLight(0xffffff);
         spot.power = basePower;
         spot.distance = distance;
@@ -332,10 +338,10 @@
         return spot;
       };
 
-      const left = createSpot(-xOffset, true);
-      const right = createSpot(xOffset, false);
+      const left = createSpot(-xOffset, targetLeft, true);
+      const right = createSpot(xOffset, targetRight, false);
 
-      return { left, right, target, beams: [] };
+      return { left, right, target: { left: targetLeft, right: targetRight }, beams: [] };
     }
 
     function attachRearLights(car) {
@@ -348,7 +354,6 @@
 
       const rearZ = box.min.z + size.z * 0.04;
       const lightY = box.min.y + size.y * 0.46;
-      const reverseY = box.min.y + size.y * 0.43;
       const xOffset = Math.max(size.x * 0.2, 0.18);
 
       const findLightMeshes = (predicate) => {
@@ -363,10 +368,6 @@
 
       const tailCandidates = findLightMeshes((name) =>
         name.includes("tail") || name.includes("rear") || name.includes("brake") || name.includes("stop")
-      );
-
-      const reverseCandidates = findLightMeshes((name) =>
-        name.includes("reverse") || name.includes("back") || name.includes("rear") && name.includes("light")
       );
 
       const assignPair = (meshes, fallbackFactory) => {
@@ -401,90 +402,66 @@
         return { left, right };
       };
 
-      const makeReverseMeshes = () => {
-        const geo = new THREE.BoxGeometry(0.14, 0.085, 0.018);
-        const mat = new THREE.MeshStandardMaterial({
-          color: 0x1a1a1a,
-          emissive: 0xf2f2f0,
-          emissiveIntensity: 0.0,
-          roughness: 0.52,
-          metalness: 0.04,
-        });
-        const left = new THREE.Mesh(geo, mat.clone());
-        const right = new THREE.Mesh(geo.clone(), mat.clone());
-        [left, right].forEach((mesh, i) => {
-          mesh.position.set(i === 0 ? -xOffset * 0.8 : xOffset * 0.8, reverseY, rearZ - 0.01);
-          mesh.rotation.y = Math.PI;
-          mesh.castShadow = false;
-          mesh.receiveShadow = true;
-          car.add(mesh);
-        });
-        return { left, right };
-      };
-
       const tail = assignPair(tailCandidates, makeTailMeshes);
-      const reverse = assignPair(reverseCandidates, makeReverseMeshes);
+      const targetBack = new THREE.Object3D();
+      targetBack.position.set(0, lightY + size.y * 0.08, rearZ - size.z * 0.55);
+      car.add(targetBack);
 
-      const makePoint = (color, power, distance) => {
-        const p = new THREE.PointLight(color, undefined, distance, 2);
-        p.power = 0;
-        p.userData.basePower = power;
-        p.castShadow = false;
-        p.position.set(0, lightY, rearZ - 0.05);
-        return p;
+      const baseTailPower = 110;
+      const baseDistance = 9.5;
+      const baseAngle = THREE.MathUtils.degToRad(20);
+      const basePenumbra = 0.65;
+
+      const makeRearSpot = (offsetX) => {
+        const spot = new THREE.SpotLight(0xff2b2b);
+        spot.power = 0;
+        spot.userData.basePower = baseTailPower;
+        spot.distance = baseDistance;
+        spot.angle = baseAngle;
+        spot.decay = 2;
+        spot.penumbra = basePenumbra;
+        spot.position.set(offsetX, lightY, rearZ - 0.04);
+        const target = targetBack.clone();
+        target.position.x = offsetX;
+        car.add(target);
+        spot.target = target;
+        spot.castShadow = false;
+        car.add(spot);
+        return spot;
       };
 
-      const brakeLightL = makePoint(0xff2b2b, 90, 7.5);
-      const brakeLightR = brakeLightL.clone();
-      const reverseLightL = makePoint(0xffffff, 110, 9.5);
-      const reverseLightR = reverseLightL.clone();
-
-      brakeLightL.position.x = -xOffset * 0.9;
-      brakeLightR.position.x = xOffset * 0.9;
-      reverseLightL.position.x = -xOffset * 0.8;
-      reverseLightR.position.x = xOffset * 0.8;
-
-      car.add(brakeLightL, brakeLightR, reverseLightL, reverseLightR);
+      const brakeLightL = makeRearSpot(-xOffset * 0.9);
+      const brakeLightR = makeRearSpot(xOffset * 0.9);
 
       const rear = {
         leftMesh: tail.left,
         rightMesh: tail.right,
-        reverseLeftMesh: reverse.left,
-        reverseRightMesh: reverse.right,
         brakeLightL,
         brakeLightR,
-        reverseLightL,
-        reverseLightR,
         brakeFactor: 0,
-        reverseFactor: 0,
         prevSpeed: 0,
         isBraking: false,
-        isReversing: false,
       };
 
       return rear;
     }
 
     function updateRearLights(rear, dt, speed, targetSpeed, throttle, lightsOn = true) {
-      if (!rear) return { braking: false, reversing: false };
+      if (!rear) return { braking: false };
       const safeDt = Math.max(dt, 0.0001);
       const accel = (speed - (rear.prevSpeed ?? speed)) / safeDt;
 
-      const reversing = speed < -0.4 || (targetSpeed < -0.3 && speed < -0.05);
       const brakingByAccel = speed > 0.6 && accel < -1.2;
       const brakingByInput = speed > 0.6 && throttle < -0.1;
       const braking = brakingByAccel || brakingByInput;
 
       const lerpAmt = THREE.MathUtils.clamp(dt * 6.5, 0, 1);
       rear.brakeFactor = THREE.MathUtils.lerp(rear.brakeFactor, braking ? 1 : 0, lerpAmt);
-      rear.reverseFactor = THREE.MathUtils.lerp(rear.reverseFactor, reversing ? 1 : 0, lerpAmt);
 
       const tailBase = lightsOn ? 0.9 : 0.0;
       const brakeBoost = 3.6;
-      const reverseBoost = 3.0;
 
       const tailIntensity = tailBase + rear.brakeFactor * brakeBoost;
-      const reverseIntensity = rear.reverseFactor * reverseBoost;
 
       const updateMeshIntensity = (mesh, intensity) => {
         if (!mesh || !mesh.material) return;
@@ -496,25 +473,17 @@
 
       updateMeshIntensity(rear.leftMesh, tailIntensity);
       updateMeshIntensity(rear.rightMesh, tailIntensity);
-      updateMeshIntensity(rear.reverseLeftMesh, reverseIntensity);
-      updateMeshIntensity(rear.reverseRightMesh, reverseIntensity);
 
       const brakePower = rear.brakeFactor * rear.brakeLightL.userData.basePower + (lightsOn ? 28 : 0);
-      const reversePower = rear.reverseFactor * rear.reverseLightL.userData.basePower;
 
       [rear.brakeLightL, rear.brakeLightR].forEach((light) => {
         light.power = brakePower;
         light.visible = light.power > 0.01;
       });
-      [rear.reverseLightL, rear.reverseLightR].forEach((light) => {
-        light.power = reversePower;
-        light.visible = light.power > 0.01;
-      });
 
       rear.prevSpeed = speed;
       rear.isBraking = braking;
-      rear.isReversing = reversing;
-      return { braking, reversing };
+      return { braking };
     }
 
     // --- Car (GLB model) ---
