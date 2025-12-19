@@ -1146,6 +1146,12 @@
       const target = {
         position: new THREE.Vector3(state.p?.[0] || 0, state.p?.[1] || 0, state.p?.[2] || 0),
         yaw: state.y || 0,
+        quaternion: new THREE.Quaternion(
+          state.q?.[0] || 0,
+          state.q?.[1] || 0,
+          state.q?.[2] || 0,
+          state.q?.[3] || 1
+        ),
         speed: state.s || 0,
         steer: state.st || 0,
         brake: Boolean(state.b),
@@ -1160,13 +1166,11 @@
         if (!player.mesh || !player.target) continue;
         const rb = player.mesh.userData.physics?.body;
         const currentPos = rb ? rb.translation() : player.mesh.position;
-
         const lerpPos = new THREE.Vector3(currentPos.x, currentPos.y, currentPos.z)
           .lerp(player.target.position, follow);
-        const currentYawVal = player.mesh.rotation.y;
-        const deltaYaw = ((player.target.yaw - currentYawVal + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
-        const lerpYaw = currentYawVal + deltaYaw * follow;
-        const lerpQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), lerpYaw);
+        const targetQuat = player.target.quaternion || new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), player.target.yaw || 0);
+        const currentQuat = player.mesh.quaternion.clone();
+        const lerpQuat = currentQuat.slerp(targetQuat, follow);
 
         if (rb) {
           const current = new THREE.Vector3(currentPos.x, currentPos.y, currentPos.z);
@@ -1247,7 +1251,9 @@
       const now = performance.now();
       if (now - NETWORK.lastSend < 50) return; // ~20 Hz
       NETWORK.lastSend = now;
-      const yaw = car.rotation.y;
+      const rot = playerPhysics.body?.rotation?.();
+      const yaw = rot ? Math.atan2(2 * (rot.w * rot.y + rot.x * rot.z), 1 - 2 * (rot.y * rot.y + rot.z * rot.z)) : car.rotation.y;
+      const quat = rot ? [Number(rot.x.toFixed(4)), Number(rot.y.toFixed(4)), Number(rot.z.toFixed(4)), Number(rot.w.toFixed(4))] : [Number(car.quaternion.x.toFixed(4)), Number(car.quaternion.y.toFixed(4)), Number(car.quaternion.z.toFixed(4)), Number(car.quaternion.w.toFixed(4))];
       const speed = car.userData.lastSpeed || 0;
       const steerVisual = clamp(inputX, -1, 1) * (Math.PI / 7);
       const payload = {
@@ -1255,6 +1261,7 @@
         state: {
           p: [Number(car.position.x.toFixed(3)), Number(car.position.y.toFixed(3)), Number(car.position.z.toFixed(3))],
           y: Number(yaw.toFixed(4)),
+          q: quat,
           s: Number(speed.toFixed(3)),
           st: Number(steerVisual.toFixed(4)),
           b: Boolean(car.userData.brakeActive)
@@ -1633,7 +1640,7 @@
       const torqueScale = 0.45 + speedFactor * 0.55;
       const steerSign = speedAlong < -0.45 ? -1 : 1; // flip when reversing to match joystick feel
       const steerStrength = grounded ? DRIVE.steerTorque : DRIVE.steerTorque * 0.2;
-      rb.applyTorqueImpulse({ x: 0, y: -ax * steerSign * steerStrength * torqueScale, z: 0 }, true);
+      rb.applyTorqueImpulse({ x: 0, y: ax * steerSign * steerStrength * torqueScale, z: 0 }, true);
 
       // Toy-like sideways grip cheat (only when wheels have contact)
       const sideSpeed = vel.dot(right);
