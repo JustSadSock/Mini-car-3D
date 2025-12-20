@@ -14,6 +14,9 @@ document.addEventListener("gestureend", (e) => e.preventDefault(), { passive: fa
 const wrap = document.getElementById("wrap");
 const hud = document.getElementById("hud");
 const netStatusEl = document.getElementById("netStatus");
+const netDebugEl = document.createElement("div");
+netDebugEl.id = "netDebug";
+hud.appendChild(netDebugEl);
 
 const NETWORK = {
   defaultHost: "irgri.uk",
@@ -28,13 +31,21 @@ const NETWORK = {
   snapshotDelay: 0.12, // render delay (s) for interpolation smoothing
   tickRate: 60,
   snapshotRate: 20,
-  serverTimeOffset: 0
+  serverTimeOffset: 0,
+  lastSnapshotRecvAt: 0
 };
 
 function setNetStatus(text, online = false) {
   netStatusEl.textContent = text;
   netStatusEl.classList.toggle("net-online", online);
   netStatusEl.classList.toggle("net-offline", !online);
+}
+
+function updateNetDebugOverlay() {
+  if (!netDebugEl) return;
+  const readyState = NETWORK.socket ? NETWORK.socket.readyState : -1;
+  const since = NETWORK.lastSnapshotRecvAt ? Math.round(performance.now() - NETWORK.lastSnapshotRecvAt) : -1;
+  netDebugEl.textContent = `mode=${NETWORK.mode} ws=${readyState} snaps=${NETWORK.snapshotBuffer.length} last=${since}ms`;
 }
 
 await RAPIER.init();
@@ -1203,6 +1214,7 @@ function ensureOfflineWorld(message = "Offline режим (сервер недо
   NETWORK.mode = "offline";
   setNetStatus(message, false);
   NETWORK.snapshotBuffer.length = 0;
+  NETWORK.lastSnapshotRecvAt = 0;
   clearServerProps();
   clearRemotePlayers();
   if (!offlineWorldReady) {
@@ -1388,7 +1400,9 @@ function handleMessage(evt) {
       return;
     }
   } else if (data.type === "snapshot") {
-    const snap = { ...data, receivedAt: performance.now() };
+    const now = performance.now();
+    const snap = { ...data, receivedAt: now };
+    NETWORK.lastSnapshotRecvAt = now;
     NETWORK.snapshotBuffer.push(snap);
     NETWORK.snapshotBuffer.sort((a, b) => (a.serverTime || 0) - (b.serverTime || 0));
     if (NETWORK.snapshotBuffer.length > 90) NETWORK.snapshotBuffer.shift();
@@ -1963,6 +1977,7 @@ function tick(now) {
     sendInput();
   }
 
+  updateNetDebugOverlay();
   updateParticles(blendDt);
   renderer.render(scene, camera);
   requestAnimationFrame(tick);

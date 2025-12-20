@@ -2,7 +2,8 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { randomUUID } = require('crypto');
-const { WebSocketServer } = require('ws');
+const WebSocket = require('ws');
+const { WebSocketServer } = WebSocket;
 
 // Physics / networking knobs
 const SERVER_TICK_RATE = 60; // physics tick rate (Hz)
@@ -27,6 +28,10 @@ const clients = new Map(); // id -> { ws, lastInput, lastSeq, bodyHandle }
 const props = []; // { id, shape, size, initial:{p,q}, dynamic, bodyHandle?, colliderHandle }
 const dynamicPropHandles = new Set();
 let tick = 0;
+let snapshotsSent = 0;
+let lastSnapshotAt = 0;
+let broadcastsFailed = 0;
+let clientsConnected = 0;
 
 // Utility
 function log(...args) {
@@ -289,6 +294,7 @@ function removePlayer(id) {
     }
   }
   clients.delete(id);
+  clientsConnected = clients.size;
 }
 
 function playerSnapshot(id) {
@@ -328,7 +334,7 @@ function propSnapshot(prop) {
 function applyInputs(dt) {
   if (!world) return;
   for (const [id, client] of clients.entries()) {
-    if (!client.ws || client.ws.readyState !== client.ws.OPEN) continue;
+    if (!client.ws || client.ws.readyState !== WebSocket.OPEN) continue;
     const body = world.getRigidBody(client.bodyHandle);
     if (!body) continue;
     const input = client.lastInput;
@@ -440,6 +446,7 @@ function handleConnection(ws) {
   const entry = clients.get(id);
   entry.ws = ws;
   entry.lastSeen = Date.now();
+  clientsConnected = clients.size;
 
   log('client connected', id, 'total:', clients.size);
 
@@ -495,8 +502,16 @@ function broadcast(data, skipId) {
   const payload = typeof data === 'string' ? data : JSON.stringify(data);
   for (const [id, client] of clients.entries()) {
     if (id === skipId) continue;
-    if (client.ws && client.ws.readyState === client.ws.OPEN) {
-      client.ws.send(payload);
+    if (client.ws && client.ws.readyState === WebSocket.OPEN) {
+      try {
+        client.ws.send(payload);
+      } catch (err) {
+        log('broadcast failed to', id, err?.message || err);
+        broadcastsFailed += 1;
+        client.ws.terminate();
+        removePlayer(id);
+        broadcast({ type: 'player-left', id }, id);
+      }
     }
   }
 }
@@ -518,13 +533,15 @@ function startLoops() {
     if (clients.size === 0) return;
     const snapshot = buildSnapshot();
     broadcast(snapshot);
+    snapshotsSent += 1;
+    lastSnapshotAt = Date.now();
   }, 1000 / SNAPSHOT_RATE);
 
   const HEARTBEAT_MS = 15000;
   setInterval(() => {
     const now = Date.now();
     for (const [id, client] of clients.entries()) {
-      if (!client.ws || client.ws.readyState !== client.ws.OPEN) continue;
+      if (!client.ws || client.ws.readyState !== WebSocket.OPEN) continue;
       if (now - client.lastSeen > HEARTBEAT_MS * 2) {
         log('closing stale connection', id);
         client.ws.terminate();
@@ -535,6 +552,12 @@ function startLoops() {
       }
     }
   }, HEARTBEAT_MS);
+
+  setInterval(() => {
+    clientsConnected = clients.size;
+    const age = lastSnapshotAt ? Date.now() - lastSnapshotAt : -1;
+    log(`[net] clients=${clientsConnected} snapshotsSent=${snapshotsSent} lastSnapshotMsAgo=${age} failed=${broadcastsFailed}`);
+  }, 2000);
 }
 function setupWebSocket() {
   wss = new WebSocketServer({ server, path: WS_PATH, clientTracking: true, perMessageDeflate: false });
