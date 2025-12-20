@@ -343,7 +343,7 @@ function spawnServerProps(list = []) {
     mesh.position.set(pos[0] || 0, pos[1] || 0, pos[2] || 0);
     mesh.quaternion.set(rot[0] || 0, rot[1] || 0, rot[2] || 0, rot[3] || 1);
     scene.add(mesh);
-    serverProps.set(prop.id, { mesh, dynamic: prop.dynamic });
+    serverProps.set(prop.id, { mesh, dynamic: !!prop.dynamic });
   });
 }
 
@@ -1352,27 +1352,40 @@ function handleMessage(evt) {
   }
 
   if (data.type === "welcome") {
-    NETWORK.id = data.id;
-    NETWORK.tickRate = data.tickRate || NETWORK.tickRate;
-    NETWORK.snapshotRate = data.snapshotRate || NETWORK.snapshotRate;
-    NETWORK.serverTimeOffset = performance.now() - (data.serverTime || Date.now());
-    NETWORK.mode = "online";
-    offlineWorldReady = false;
-    clearClientProps();
-    NETWORK.snapshotBuffer.length = 0;
-    setNetStatus(`Online: ${resolveServerHost()}`, true);
-    ensureLocalColor();
-    clearRemotePlayers();
-    if (Array.isArray(data.props)) {
-      spawnServerProps(data.props);
-    }
-    if (Array.isArray(data.players)) {
-      data.players.forEach((p) => {
-        spawnRemotePlayer(p.id, p.initial)?.catch?.(() => {});
-      });
-    }
-    if (!car) {
-      setupPlayerCar(false, false, data.initial).catch(() => {});
+    try {
+      if (typeof spawnServerProps !== "function") {
+        throw new Error("spawnServerProps missing");
+      }
+
+      NETWORK.id = data.id;
+      NETWORK.tickRate = data.tickRate || NETWORK.tickRate;
+      NETWORK.snapshotRate = data.snapshotRate || NETWORK.snapshotRate;
+      NETWORK.serverTimeOffset = performance.now() - (data.serverTime || Date.now());
+      NETWORK.mode = "online";
+      offlineWorldReady = false;
+      clearClientProps();
+      clearServerProps();
+      NETWORK.snapshotBuffer.length = 0;
+      setNetStatus(`Online: ${resolveServerHost()}`, true);
+      ensureLocalColor();
+      clearRemotePlayers();
+      if (Array.isArray(data.props)) {
+        spawnServerProps(data.props);
+      }
+      if (Array.isArray(data.players)) {
+        data.players.forEach((p) => {
+          spawnRemotePlayer(p.id, p.initial)?.catch?.(() => {});
+        });
+      }
+      if (!car) {
+        setupPlayerCar(false, false, data.initial).catch(() => {});
+      }
+    } catch (err) {
+      console.error("Welcome init failed", err);
+      setNetStatus("Offline режим (ошибка инициализации клиента)", false);
+      NETWORK.mode = "offline";
+      ensureOfflineWorld("Offline режим (ошибка инициализации)");
+      return;
     }
   } else if (data.type === "snapshot") {
     const snap = { ...data, receivedAt: performance.now() };
