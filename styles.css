@@ -49,6 +49,21 @@ backdrop-filter: blur(10px);
 }
 #netStatus.net-online { color: #a5ffb1; }
 #netStatus.net-offline { color: #ff9f9f; }
+#netDebug {
+  position: absolute;
+  top: calc(env(safe-area-inset-top, 0px) + 12px);
+  right: calc(env(safe-area-inset-right, 0px) + 12px);
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(8, 12, 18, 0.55);
+  border: 1px solid rgba(255,255,255,0.06);
+  font-size: 11px;
+  letter-spacing: 0.01em;
+  pointer-events: none;
+  backdrop-filter: blur(8px);
+  color: rgba(255,255,255,0.86);
+  min-width: 160px;
+}
 /* One joystick = minimum buttons */
 #joy {
 position: absolute;
