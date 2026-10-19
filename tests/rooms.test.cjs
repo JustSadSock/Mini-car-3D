@@ -100,3 +100,30 @@ test('snapshots reject NaN, infinity and implausible teleports',()=>{
  a.receive({type:'state',state:{p:[null,0,0],y:0}});
  assert.equal(a.last('error').code,'invalid_state');
 });
+
+test('convoy finishes only after every car visits all four gates in order',()=>{
+ const h=harness(),first=enterRoom(h);
+ const b=h.make();b.receive({type:'join-room',code:first.code});
+ first.a.receive({type:'start-race'});
+ const targets=h.m.constants.CHECKPOINTS;
+ for(let stage=0;stage<targets.length;stage++){
+   h.advance(2000);
+   const p=targets[stage],state={p:[p.x,.6,p.z],y:0,s:6,st:0,b:false};
+   first.a.receive({type:'state',state});
+   assert.equal(h.m.rooms.get(first.code).race.stage,stage);
+   b.receive({type:'state',state});
+   if(stage<targets.length-1)
+     assert.equal(h.m.rooms.get(first.code).race.stage,stage+1);
+ }
+ assert.equal(h.m.rooms.get(first.code).race,null);
+ assert.equal(b.last('race-finish').players,2);
+ assert.ok(b.last('race-finish').duration>=6);
+});
+test('departing a convoy cancels shared stage rather than awarding false victory',()=>{
+ const h=harness(),first=enterRoom(h);
+ const b=h.make();b.receive({type:'join-room',code:first.code});
+ first.a.receive({type:'start-race'});
+ b.receive({type:'leave-room'});
+ assert.equal(h.m.rooms.get(first.code).race,null);
+ assert.equal(first.a.last('race-cancel').type,'race-cancel');
+});
