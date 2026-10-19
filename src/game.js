@@ -1212,7 +1212,13 @@ function displayLobbyStatus(text){
 }
 function updateRoom(room){
   currentRoom=room;
+  const oldAuthority=onlineView.active;
   onlineView.enabled(Boolean(room?.authoritative));
+  if(oldAuthority!==onlineView.active){
+    playerPhysics.controller?.reset();
+    playerPhysics.telemetry=null;
+    roadFeedback.reset();
+  }
   const connected=Boolean(room);
   document.getElementById("lobbyConnected").hidden=!connected;
   document.getElementById("lobbyDisconnected").hidden=connected;
@@ -2154,7 +2160,8 @@ function tick(now) {
 
   updateRemotePlayers(blendDt);
   diorama?.update(blendDt);
-  roadFeedback.update(blendDt, car, playerPhysics.telemetry);
+  if(!onlineView.active)
+    roadFeedback.update(blendDt,car,playerPhysics.telemetry);
   if(!controlsPaused&&!onlineView.active&&modeEngine.getState().id==="slalom") {
     challenge.update(blendDt,car?.position,
       Math.abs(car?.userData.lastSpeed||0));
