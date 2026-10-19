@@ -12,7 +12,8 @@ export function createRoomConnection({
   const clear=()=>{try{session?.removeItem(key);}catch(_){}};
   let socket=null,id=null,token=read()?.token||null;
   let room=null,status="offline",pending=null,desired=false;
-  let reconnectTimer=null,retry=0,lastSend=-Infinity,connectionEpoch=0,resuming=false;
+  let reconnectTimer=null,retry=0,lastSend=-Infinity,sequence=0,
+    connectionEpoch=0,resuming=false;
   let nickname="Водитель";
   let serverOverride=new URLSearchParams(location.search||"").get("server")||"";
   const getState=()=>({id,room,status,desired,nickname});
@@ -165,12 +166,24 @@ export function createRoomConnection({
     }else disconnect();
   }
   function startRace(){return send({type:"start-race"});}
+  function sendInput(x,y){
+    if(!room||status!=="in-room")return false;
+    const t=performance.now();
+    if(t-lastSend<48)return false;
+    lastSend=t;
+    return send({type:"input",input:{
+      x:Math.max(-1,Math.min(1,Number(x)||0)),
+      y:Math.max(-1,Math.min(1,Number(y)||0)),
+      seq:++sequence}});
+  }
+  // Kept for compatibility with older optional room servers; production
+  // authority never accepts positional states supplied by browsers.
   function sendState(state){
     if(!room||status!=="in-room")return false;
     const t=performance.now();
     if(t-lastSend<50)return false;
     lastSend=t;return send({type:"state",state});
   }
-  return {create,join,leave,disconnect,startRace,sendState,
+  return {create,join,leave,disconnect,startRace,sendInput,sendState,
     getState,send,url,setServer};
 }
