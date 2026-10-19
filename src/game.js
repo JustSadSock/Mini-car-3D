@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { createDrivingChallenge } from "./challenge.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { clone as cloneSkeleton } from "three/examples/jsm/utils/SkeletonUtils.js";
 import RAPIER from "https://cdn.jsdelivr.net/npm/@dimforge/rapier3d-compat@0.12.0/rapier.es.js";
@@ -131,6 +132,7 @@ grid.material.transparent = true;
 grid.material.opacity = 0.25;
 grid.position.y = 0.01;
 scene.add(grid);
+const challenge = createDrivingChallenge(THREE, scene);
 
 function registerBody(rb, mesh, collider, meta = {}) {
   if (rb) {
@@ -1350,6 +1352,8 @@ function resetCar() {
   releaseJoy();
   cameraShake = 0;
   camera.position.copy(CAMERA.offset).add(car.position);
+  challenge.reset();
+  updateDrivingHud(1);
 }
 
 function toggleLights() {
@@ -1359,6 +1363,18 @@ function toggleLights() {
 }
 document.getElementById("resetBtn").addEventListener("click", resetCar);
 document.getElementById("lightsBtn").addEventListener("click", toggleLights);
+
+let hudClock = 0;
+function updateDrivingHud(dt) {
+  hudClock += dt;
+  if (hudClock < 0.1) return;
+  hudClock = 0;
+  const s = challenge.getState();
+  document.getElementById("speedValue").textContent = String(Math.round(Math.abs(car?.userData.lastSpeed || 0) * 3.6));
+  document.getElementById("courseStatus").textContent = s.finished ? "ФИНИШ · Новый круг" :
+    (s.running ? `Ворота ${s.next}/${s.total} · ${s.time.toFixed(1)} с` : `Ворота ${s.next}/${s.total} · Старт`);
+  document.getElementById("recordValue").textContent = s.best ? `${s.best.toFixed(2)} с` : "—";
+}
 
 function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
 function approach(current, target, maxDelta) {
@@ -1686,6 +1702,8 @@ function tick(now) {
   }
 
   updateRemotePlayers(blendDt);
+  challenge.update(blendDt, car?.position, Math.abs(car?.userData.lastSpeed || 0));
+  updateDrivingHud(blendDt);
 
   if (NETWORK.mode === "online") {
     sendStateSnapshot();
@@ -1702,6 +1720,7 @@ async function startGame() {
   await setupPlayerCar();
   document.getElementById("loadOverlay").hidden = true;
   camera.position.copy(CAMERA.offset).add(car.position);
+  updateDrivingHud(1);
   initNetwork();
   requestAnimationFrame(tick);
 }

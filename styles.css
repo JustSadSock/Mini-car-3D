@@ -101,3 +101,21 @@ left: 24%;
 #driveActions button span {font:700 10px system-ui;letter-spacing:.05em;}
 #driveActions button:active {transform:scale(.94);}
 #driveActions button[aria-pressed="false"] {color:#94a0a9;}
+
+#driveStats {position:absolute;top:calc(env(safe-area-inset-top,0px) + 62px);
+ left:calc(env(safe-area-inset-left,0px) + 12px);
+ display:flex;align-items:center;gap:13px;padding:11px 15px;
+ background:rgba(17,26,34,.83);border:1px solid rgba(238,184,120,.22);
+ border-radius:12px;backdrop-filter:blur(12px);max-width:calc(100vw - 50px);}
+.speed {display:flex;flex-direction:column;min-width:65px;}
+.speed strong {font-size:32px;line-height:1;font-weight:850;letter-spacing:-.06em;
+ color:#ffd19a;font-variant-numeric:tabular-nums;}
+.speed span {font-size:10px;letter-spacing:.13em;opacity:.72;}
+.runStats {display:flex;flex-direction:column;gap:5px;font-size:13px;white-space:nowrap;}
+.runStats small {font-size:10px;letter-spacing:.07em;opacity:.78;}
+.runStats b {color:#ffd19a;}
+@media(max-width:540px) {
+ #driveStats {top:calc(env(safe-area-inset-top,0px) + 64px);padding:10px;gap:8px;}
+ .speed strong {font-size:27px;}
+ .runStats {font-size:11px;}
+}
