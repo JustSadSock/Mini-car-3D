@@ -292,3 +292,52 @@ html,body{
   font-weight:750;letter-spacing:.025em;font-size:9px;}
 #modeTimer{color:#f9ddb8;font-variant-numeric:tabular-nums;}
 @media(max-width:670px){#modeExtra{max-width:170px;font-size:8px;}}
+
+/* Lobby plate uses the same enamel controls as the workshop mission board. */
+.multiplayer-sheet {max-width:645px;}
+.multiplayer-sheet .garage-label{display:block;font-size:10px;font-weight:900;
+ letter-spacing:.12em;color:#efc28c;margin:15px 0 6px;}
+.multiplayer-sheet input{display:block;width:100%;min-width:0;padding:13px 15px;
+ font:800 16px system-ui;color:#f7e0bd;background:#24313a;
+ border:1px solid #9f846d;border-radius:3px;user-select:text;-webkit-user-select:text;
+ touch-action:manipulation;}
+.multiplayer-sheet input:focus{outline:2px solid #e3b57d;}
+.garage-connect{display:flex;gap:11px;margin-top:16px;align-items:flex-end;flex-wrap:wrap;}
+.garage-connect button,.lobby-header button{border:0;padding:13px 16px;min-height:46px;
+ background:#e5af78;color:#27333c;font-weight:950;font-size:11px;
+ cursor:pointer;letter-spacing:.035em;}
+.garage-connect button:disabled{opacity:.45;cursor:not-allowed;}
+.join-grid{display:grid;grid-template-columns:minmax(90px,1fr) auto;
+ column-gap:7px;align-items:end;flex:1 1 240px;}
+.join-grid .garage-label{grid-column:1/-1;}
+.join-grid input{text-transform:uppercase;letter-spacing:.16em;}
+.lobby-header{display:flex;gap:10px;align-items:center;justify-content:space-between;
+ border-bottom:1px solid #987858;padding:9px 0 16px;flex-wrap:wrap;
+ font-size:12px;letter-spacing:.08em;}
+#roomCode{font:900 28px ui-monospace,monospace;letter-spacing:.14em;color:#ffdb9f;}
+.lobby-members{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));
+ gap:8px;margin:18px 0 9px;}
+.lobby-member{display:flex;flex-direction:column;gap:6px;padding:13px 15px;
+ background:#233039;border:1px solid #63717a;font-size:13px;font-weight:800;
+ overflow:hidden;}
+.lobby-member small{font-size:9px;letter-spacing:.08em;color:#e6bb88;}
+.lobby-member.offline{opacity:.58;border-style:dashed;}
+.secondary-lobby{color:#f2d7b6!important;border:1px solid #ba9376!important;
+ background:#35434c!important;}
+#lobbyStatus{color:#eac39b;font-size:12px;line-height:1.4;margin-top:18px;}
+#convoyHud[hidden],#lobbyConnected[hidden],#lobbyDisconnected[hidden]{display:none;}
+#convoyHud{position:absolute;left:calc(env(safe-area-inset-left,0px) + 14px);
+ top:calc(env(safe-area-inset-top,0px) + 242px);
+ background:#25333ded;border-left:4px solid #8ccdb1;
+ padding:10px 14px;display:flex;flex-direction:column;gap:5px;max-width:260px;
+ font-size:11px;box-shadow:0 7px 22px #131c24b3;}
+.convoy-heading{font-size:9px;letter-spacing:.12em;color:#a0ddcb;font-weight:850;}
+#convoyStage{font-size:19px;color:#f2e6cb;}
+#convoyMembers{font-size:10px;color:#d6cfbf;}
+#convoyTime{font:800 15px ui-monospace,monospace;color:#d0eacb;}
+@media(max-width:670px){
+ .lobby-members{grid-template-columns:1fr;}
+ .multiplayer-sheet .garage-connect{display:grid;grid-template-columns:1fr;}
+ .join-grid{width:100%;flex:auto;}
+ #convoyHud{top:calc(env(safe-area-inset-top,0px) + 240px);max-width:184px;}
+}

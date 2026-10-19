@@ -37,14 +37,57 @@
       <button id="physicsBtn" title="Диагностика подвески (P)" aria-label="Диагностика физики" aria-pressed="false">≋ <span>ФИЗИКА</span></button>
       <button id="cameraBtn" title="Поменять ракурс (C)" aria-label="Поменять ракурс">ПОГОНЯ</button>
       <button id="modeBtn" title="Выбрать режим (M)" aria-label="Выбрать игровой режим" aria-expanded="false">✦ <span>РЕЖИМЫ</span></button>
+      <button id="onlineBtn" title="Совместная игра" aria-label="Комната друзей" aria-expanded="false">◎ <span>ВМЕСТЕ</span></button>
     </div>
     <div id="modeToast" class="mode-toast" hidden role="status"></div>
+    <div id="convoyHud" hidden role="status">
+      <div class="convoy-heading">КОНВОЙ · СОВМЕСТНАЯ ТРАССА</div>
+      <strong id="convoyStage">ВОРОТА 1/4</strong>
+      <span id="convoyMembers">ЖДЁМ НАПАРНИКА</span>
+      <span id="convoyTime">0:00</span>
+    </div>
     <div id="controlTip">WASD — вести · M — задания · C — камера · F — поднять</div>
     <div id="joy" role="group" aria-label="Руль и газ">
       <div id="joyBase"></div>
       <div id="joyNub"></div>
     </div>
   </div>
+
+  <section id="onlinePanel" class="garage-overlay" role="dialog"
+    aria-modal="true" aria-label="Совместная игра" hidden>
+    <div class="garage-sheet multiplayer-sheet">
+      <div class="garage-heading">
+        <div><small>TINY MOTOR CLUB · ПРИВАТНЫЙ ГАРАЖ</small>
+          <h2>ЕЗДИМ ВМЕСТЕ</h2><p>До четырёх автомобилей в одной мастерской. Комната только по коду.</p>
+        </div>
+        <button id="onlineCloseBtn" class="sheet-close" aria-label="Вернуться в игру">✕</button>
+      </div>
+      <div id="lobbyDisconnected">
+        <label class="garage-label" for="driverName">ИМЯ ВОДИТЕЛЯ</label>
+        <input id="driverName" autocomplete="nickname" maxlength="18" value="Водитель">
+        <div class="garage-connect">
+          <button id="createLobbyBtn">СОЗДАТЬ КОМНАТУ</button>
+          <div class="join-grid">
+            <label class="garage-label" for="joinCodeInput">КОД ПРИГЛАШЕНИЯ</label>
+            <input id="joinCodeInput" maxlength="6" inputmode="text"
+              autocapitalize="characters" placeholder="ABC234">
+            <button id="joinLobbyBtn">ПРИСОЕДИНИТЬСЯ</button>
+          </div>
+        </div>
+      </div>
+      <div id="lobbyConnected" hidden>
+        <div class="lobby-header"><span>КОМНАТА <strong id="roomCode">------</strong></span>
+          <button id="copyInviteBtn">КОПИРОВАТЬ ПРИГЛАШЕНИЕ</button></div>
+        <div class="lobby-members" id="roomMembers" aria-label="Участники"></div>
+        <p class="garage-note" id="lobbyHint">Ведущий запускает испытание, когда все готовы.</p>
+        <div class="garage-connect">
+          <button id="startConvoyBtn">НАЧАТЬ КОНВОЙ</button>
+          <button id="leaveLobbyBtn" class="secondary-lobby">ПОКИНУТЬ КОМНАТУ</button>
+        </div>
+      </div>
+      <p id="lobbyStatus" role="status">Подключение не требуется для одиночной игры.</p>
+    </div>
+  </section>
 
   <section id="modePanel" class="garage-overlay" role="dialog" aria-modal="true"
            aria-label="Выбор испытания" hidden>
