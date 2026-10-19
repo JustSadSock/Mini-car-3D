@@ -2,12 +2,14 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { createRoomManager } = require('./multiplayer/rooms.cjs');
+const { createAuthoritativeWorld, STEP } = require('./multiplayer/authoritative-world.cjs');
+const RAPIER=require('@dimforge/rapier3d-compat');
 const { WebSocketServer } = require('ws');
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
 const PUBLIC_DIR = __dirname;
 const WS_PATH = '/ws';
-const roomManager = createRoomManager();
+let roomManager=null;
 
 function log(...args) {
   const ts = new Date().toISOString();
@@ -127,6 +129,7 @@ wss.on('connection', (ws, req) => {
   }
   ws.isAlive=true;
   ws.on('pong',()=>{ws.isAlive=true;});
+  if(!roomManager){ws.close(1013,'Server starting');return;}
   roomManager.connect(ws);
 });
 
@@ -138,10 +141,33 @@ const maintenance = setInterval(()=>{
     ws.isAlive=false;
     ws.ping();
   }
-  roomManager.cleanup();
+  roomManager?.cleanup();
 },HEARTBEAT_MS);
 maintenance.unref?.();
 
-server.listen(PORT, () => {
-  log(`server listening on http://localhost:${PORT} (private rooms)`);
+// Initialize native WebAssembly once and only then accept connections.
+async function boot(){
+  await RAPIER.init();
+  roomManager=createRoomManager({
+    physicsFactory:()=>createAuthoritativeWorld()
+  });
+  // Physics advances at a fixed step. Catch-up is bounded after event-loop pauses.
+  let previous=process.hrtime.bigint(),accumulator=0;
+  const ticker=setInterval(()=>{
+    const tick=process.hrtime.bigint();
+    const dt=Math.min(.13,Number(tick-previous)/1e9);
+    previous=tick;accumulator+=dt;
+    let count=0;
+    while(accumulator>=STEP&&count<6){
+      roomManager.advance();
+      accumulator-=STEP;count++;
+    }
+    if(count===6)accumulator=0;
+  },1000/60);
+  ticker.unref?.();
+  server.listen(PORT,()=>log(`server listening on http://localhost:${PORT} (Rapier authoritative)`));
+}
+boot().catch(err=>{
+  console.error('Cannot initialize authoritative physics:',err);
+  process.exitCode=1;
 });
