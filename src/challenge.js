@@ -1,5 +1,5 @@
 // Mini Car 3D: non-solid illuminated checkpoint course.
-export function createDrivingChallenge(THREE, scene) {
+export function createDrivingChallenge(THREE, scene, onFinish = null) {
   const STORAGE_KEY = "mini-car-3d:best-slalom:v1";
   const route = [[0,14],[11,29],[26,21],[33,0],[19,-20],[-5,-27],[-29,-11],[-23,17],[-8,32]];
   const gateGeo = new THREE.TorusGeometry(2.7, 0.13, 10, 40);
@@ -34,6 +34,7 @@ export function createDrivingChallenge(THREE, scene) {
     gates.push({x,z,ring,floor});
   });
 
+  let courseActive = true;
   let best = 0;
   try {
     const stored = Number(localStorage.getItem(STORAGE_KEY));
@@ -47,9 +48,18 @@ export function createDrivingChallenge(THREE, scene) {
   let cooldown = 0;
   let visualTime = 0;
   function reset() { index=0; elapsed=0; running=false; finished=0; cooldown=0; }
+  function setActive(next) {
+    courseActive=Boolean(next);
+    line.visible=courseActive;
+    gates.forEach(({ring,floor})=>{
+      ring.visible=courseActive;
+      floor.visible=courseActive;
+    });
+    if(!courseActive)reset();
+  }
   function update(dt, position, speed) {
     visualTime += dt;
-    if (!position) return;
+    if (!courseActive || !position) return;
     if (finished > 0) finished=Math.max(0, finished-dt);
     if (cooldown > 0) cooldown=Math.max(0,cooldown-dt);
     if (!running && cooldown === 0 && speed > 0.7) running = true;
@@ -58,11 +68,13 @@ export function createDrivingChallenge(THREE, scene) {
     if (gate && running && Math.hypot(position.x-gate.x, position.z-gate.z) < 3.5) {
       index++;
       if (index >= gates.length) {
+        const lapTime=elapsed;
         if (!best || elapsed < best) {
           best=elapsed;
           try {localStorage.setItem(STORAGE_KEY, best.toFixed(3));} catch (_) {}
         }
         reset();
+        if(typeof onFinish==="function")onFinish(lapTime);
         cooldown=2;
         finished=3;
       }
@@ -81,5 +93,5 @@ export function createDrivingChallenge(THREE, scene) {
   function getState() {
     return {next:index+1,total:gates.length,time:elapsed,running,best,finished:finished>0};
   }
-  return {update,getState,reset};
+  return {update,getState,reset,setActive};
 }
