@@ -58,13 +58,18 @@
 - [ ] Future expansion: different car chassis/handling, cargo weight and physics puzzle courses.
 
 ## P4 — Multiplayer / PocketWorks integration
-- Replace hard-coded external host with Pocketnet room semantics and reconnection.
-- State sanitization, interpolation buffer, clock sync and reconciliation.
-- Either ghost races or proper mutually dynamic vehicles; do not mix them.
-- Co-op driving puzzles, vehicle soccer, convoy trials, invite flow.
-- Integrate Mini Car 3D as an independent PocketWorks app with icon, launch,
-  app-switch navigation and environment-compatible persistence.
-- Multiplayer automation: join/leave, repeated disconnect, inactive tab, two cars colliding.
+- [x] Remove hard-coded global server and automatic connection. Play alone by default.
+- [x] Private, shareable six-character rooms with four-seat cap, roster, room leader, explicit leave and invite links.
+- [x] Room-scoped car snapshots and state sanitization; 20 Hz network send and rendered peer interpolation.
+- [x] Reconnection with secret session token and reserved seat during a 25-second grace window.
+- [x] Server-coordinated co-op convoy: four sequential checkpoints reached by every connected participant.
+- [x] Multiplayer lobby UI for desktop/mobile; explicit external WebSocket endpoint and origin allowlisting.
+- [x] Server-side tests: isolation, room capacity, leader hand-off, resumption, convoy gating, invalid movement.
+- [ ] Authoritative, deterministic shared car-car physics and damage reconciliation. Current remote vehicles are kinematic proxies; their physical responses are not server-authoritative.
+- [ ] Replace standalone Node WebSocket host with PocketWorks/Pocketnet room transport after locating the production shell and deployment wiring.
+- [ ] Verify launch, navigation, manifest and version synchronization in the actual PocketWorks shell; standalone repository is not proof of deployment.
+- [ ] End-to-end browser confirmation: two clients, reconnect, room join/leave, share link, race finish, real mobile device.
+- [ ] Extended co-op: cargo handling, vehicle soccer, obstacle course and creator tools.
 
 ## P5 — Audio, input and UX
 - Engine, rolling and impacts as layered spatial audio. Mute toggles and volume slider.
