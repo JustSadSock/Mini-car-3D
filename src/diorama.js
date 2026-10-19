@@ -174,6 +174,27 @@ export function createDiorama({THREE,RAPIER,scene,world,ground,registerBody,lowQ
   }
   ribbon(12.0,.024,material(0x645c51,.97));
   ribbon(10.8,.032,material(theme.road,.93));
+
+  // A little service entry puts the first gate straight ahead of the spawn:
+  // the main loop is not immediately under the car at (0,0).
+  paintPlane(0,6.8,8.4,13.6,material(theme.road,.93),.035);
+  for(const x of [-4.0,4.0]) {
+    paintPlane(x,6.8,.18,12.0,mat.white,.047);
+  }
+  for(const z of [1.6,3.9,6.2]) {
+    paintPlane(0,z,1.15,.18,mat.yellow,.05);
+  }
+  const startTexture=labelTexture(THREE,["START","DRIVE TO THE FIRST GATE"],
+    "#42413a","#ffe1af");
+  if(startTexture) {
+    const painted=new THREE.Mesh(
+      new THREE.PlaneGeometry(4.6,2.3),
+      new THREE.MeshBasicMaterial({map:startTexture,transparent:true,opacity:.87,depthWrite:false})
+    );
+    painted.rotation.x=-Math.PI/2;
+    painted.position.set(0,.053,11.1);
+    add(painted);
+  }
   // Weathered edge lines in one instanced draw call.
   function stripes(side) {
     const count=94, geo=new THREE.BoxGeometry(.19,.013,.7);
@@ -244,7 +265,8 @@ export function createDiorama({THREE,RAPIER,scene,world,ground,registerBody,lowQ
     .forEach(([x,z],i)=>cone(x,z,i%3===0?1.22:1));
 
   // Garage / pit station with functional posts and roof. Access stays open.
-  block(-53,.11,7,23,.22,17,mat.rubber,{collision:false,name:"Service bay floor"});
+  // Flush painted service mat, with the real ground collider underneath.
+  paintPlane(-53,7,23,17,mat.rubber,.036);
   for(const x of [-62,-44]){
     for(const z of [1,13]){
       block(x,3.4,z,.48,6.8,.48,mat.metal,{name:"Garage support"});
@@ -261,10 +283,8 @@ export function createDiorama({THREE,RAPIER,scene,world,ground,registerBody,lowQ
     if(pathClearance(x,z)<6.3)continue;
     const h=1.4 + (Math.abs(x+z)%3)*.25;
     block(x,h/2,z,2.1,h,2.0,mat.cardboard,{dynamic:true,yaw:rot,name:"Pushable delivery crate"});
-    for(const offset of [-.65,.65]){
-      const tape=paintPlane(x+offset,z,.085,1.6,mat.cardboardDark,.055);
-      tape.visible=false; // crate decals would be at floor: intentionally omitted
-    }
+    // Small colored lid printed onto the same moving rigid body would require
+    // composing a multi-mesh rigidbody. Keep crate collision and art matched.
   }
   // A row of realistic tire stacks with fixed cylinders and safe placement.
   const tireGeo=new THREE.CylinderGeometry(.9,.9,.38,16);
