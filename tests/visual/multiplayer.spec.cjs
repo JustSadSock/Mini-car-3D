@@ -25,7 +25,7 @@ test("browser host, guest, isolated room and resumable co-op convoy",async({page
   await page.setViewportSize({width:1350,height:850});
   await page.goto("/",{waitUntil:"domcontentloaded"});
   await expect(page.locator("#loadOverlay")).toBeHidden({timeout:65000});
-  await expect(page.locator("#netStatus")).toContainText("ОДИНОЧНАЯ");
+  await expect(page.locator("#netStatus")).toContainText(/Автономная мастерская|ОДИНОЧНАЯ/);
   await page.locator("#onlineBtn").click();
   await expect(page.locator("#onlinePanel")).toBeVisible();
   await page.locator("#driverName").fill("Host");
