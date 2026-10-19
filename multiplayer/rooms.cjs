@@ -74,6 +74,7 @@ function createRoomManager({now=Date.now,codeFactory=null,physicsFactory=null}={
   }
   function stateOf(room){
     return {type:'room',code:room.code,host:room.host,
+      authoritative:Boolean(room.physics),
       members:[...room.members].map(id=>clients.get(id))
         .filter(Boolean).map(publicMember),
       race:room.race?{
