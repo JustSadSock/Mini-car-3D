@@ -20,7 +20,7 @@ function safeInput(input) {
 }
 function createAuthoritativeWorld({now=Date.now}={}) {
   // RAPIER.init() must have completed before constructing worlds.
-  const world=new RAPIER.World({x:0,y:-12.8});
+  const world=new RAPIER.World({x:0,y:-12.8,z:0});
   world.timestep=STEP;
   const floor=world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
   world.createCollider(RAPIER.ColliderDesc.cuboid(110,.10,110)
