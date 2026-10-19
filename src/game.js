@@ -1509,88 +1509,46 @@ function spawnSkid(origin, direction, intensity) {
 
 function applyPlayerForces(dt) {
   const rb = playerPhysics.body;
-  if (!car || !rb) return;
+  const controller = playerPhysics.controller;
+  if (!car || !rb || !controller) return;
+  // Both inputs use the same frame: +Z throttle, +X right steering.
+  const axes = joyActive && isCoarsePointer ? {x:joyX,y:joyY} : keyboardAxes();
+  const ax = Math.abs(axes.x) < 0.06 ? 0 : axes.x;
+  const ay = Math.abs(axes.y) < 0.06 ? 0 : axes.y;
+  inputX = approach(inputX, ax, dt * 6.5);
+  inputY = approach(inputY, ay, dt * 6.5);
 
-  // Prefer joystick; if idle, use keyboard.
-  let ax = joyX;
-  let ay = joyY;
-  if (joyActive && isCoarsePointer) {
-    // The model faces +Z; physics forward points -Z, hence mirrored input.
-    // Both touch axes must match the existing keyboard driving directions.
-    ax = -joyX;
-    ay = -joyY;
-  }
-  if ((!joyActive || !isCoarsePointer) && ax === 0 && ay === 0) {
-    const k = keyboardAxes();
-    ax = k.x;
-    ay = k.y;
-  }
+  const state = controller.step(dt, inputX, inputY);
+  playerPhysics.telemetry = state;
+  car.userData.lastSpeed = state.speed;
+  car.userData.lastTargetSpeed = inputY * (inputY >= 0
+    ? TUNING.forwardLimit : TUNING.reverseLimit);
+  const braking = (state.speed > 0.5 && inputY < -0.15) ||
+    (state.speed < -0.5 && inputY > 0.15);
+  car.userData.brakeActive = braking;
+  car.userData.applyLights?.(braking);
 
-  const DEADZONE = 0.06;
-  if (Math.abs(ax) < DEADZONE) ax = 0;
-  if (Math.abs(ay) < DEADZONE) ay = 0;
-
-  const INPUT_ACCEL = 6.0;
-  inputX = approach(inputX, ax, INPUT_ACCEL * dt);
-  inputY = approach(inputY, ay, INPUT_ACCEL * dt);
-  ax = inputX;
-  ay = inputY;
-
-  const rot = rb.rotation();
-  tempQuat.set(rot.x, rot.y, rot.z, rot.w);
-  const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(tempQuat).normalize();
-  const right = new THREE.Vector3(1, 0, 0).applyQuaternion(tempQuat).normalize();
-  const velocity = rb.linvel();
-  const vel = new THREE.Vector3(velocity.x, velocity.y, velocity.z);
-  const speedAlong = vel.dot(forward);
-
-  // Engine impulse
-  const engine = forward.clone().multiplyScalar(ay * DRIVE.engineImpulse);
-  rb.applyImpulse(engine, true);
-
-  // Steering torque (stronger at medium speeds)
-  const speedFactor = clamp(Math.abs(speedAlong) / DRIVE.maxSpeed, 0, 1);
-  const torqueScale = 0.45 + speedFactor * 0.55;
-  const steerSign = speedAlong < -0.45 ? -1 : 1; // flip when reversing to match joystick feel
-  rb.applyTorqueImpulse({ x: 0, y: -ax * steerSign * DRIVE.steerTorque * torqueScale, z: 0 }, true);
-
-  // Toy-like sideways grip cheat
-  const sideSpeed = vel.dot(right);
-  const sideMagnitude = Math.abs(sideSpeed);
-  if (sideMagnitude > 0.02) {
-    const gripScale = clamp(sideMagnitude / 6.5, 0.25, 1); // lower = smoother snaps, higher = tighter drift kill
-    const sideImpulse = right.clone().multiplyScalar(-sideSpeed * DRIVE.sideGrip * gripScale);
-    rb.applyImpulse(sideImpulse, true);
-  }
-
-  // Extra yaw/roll stabilizer to keep toy car planted
-  const ang = rb.angvel();
-  if (Math.abs(ang.x) + Math.abs(ang.y) + Math.abs(ang.z) > 0.01) {
-    rb.applyTorqueImpulse({ x: -ang.x * 0.035, y: -ang.y * 0.08, z: -ang.z * 0.035 }, true);
-  }
-
-  const speed = vel.length();
-  const forwardMax = speedAlong >= 0 ? DRIVE.maxSpeed : DRIVE.maxReverse;
-  if (speed > forwardMax + 0.35) {
-    const over = speed - forwardMax;
-    const clampFactor = over * DRIVE.speedClamp;
-    const clampImpulse = vel.clone().normalize().multiplyScalar(clampFactor);
-    rb.applyImpulse(clampImpulse.multiplyScalar(-1), true);
-  }
-
-  // Skid dust
-  if (skidCooldown <= 0 && Math.abs(sideSpeed) > DRIVE.skidSideThreshold && Math.abs(speedAlong) > DRIVE.skidMinSpeed) {
+  if (state.grounded && state.slip > DRIVE.skidSideThreshold &&
+      Math.abs(state.speed) > DRIVE.skidMinSpeed && skidCooldown <= 0) {
     const pos = rb.translation();
-    spawnSkid(new THREE.Vector3(pos.x, pos.y + 0.05, pos.z), right.clone(), clamp(Math.abs(sideSpeed) / 8, 0.2, 1));
-    skidCooldown = 0.08;
+    const quat = rb.rotation();
+    const lateral = new THREE.Vector3(1,0,0).applyQuaternion(
+      new THREE.Quaternion(quat.x,quat.y,quat.z,quat.w));
+    spawnSkid(new THREE.Vector3(pos.x, Math.max(.06,pos.y-.32),pos.z),
+      lateral,clamp(state.slip/7,.2,1));
+    skidCooldown=.085;
   }
-  skidCooldown = Math.max(0, skidCooldown - dt);
+  skidCooldown = Math.max(0,skidCooldown-dt);
 
-  car.userData.lastSpeed = speedAlong;
-  car.userData.lastTargetSpeed = ay * (ay >= 0 ? DRIVE.maxSpeed : DRIVE.maxReverse);
-  const braking = (speedAlong > 0.4 && ay < 0) || (Math.abs(speedAlong) > 0.6 && Math.abs(ay) < 0.05);
-  car.userData.brakeActive = braking || ay < -0.2;
-  car.userData.applyLights?.(car.userData.brakeActive);
+  const r=rb.rotation();
+  const upright=new THREE.Vector3(0,1,0).applyQuaternion(
+    new THREE.Quaternion(r.x,r.y,r.z,r.w)).y;
+  const p=rb.translation();
+  const upsideDown=upright < .25 && Math.abs(state.speed)<1.5;
+  const stuck=state.grounded && Math.abs(state.speed)<.3 && Math.abs(inputY)>.8;
+  recoveryTimer=(upsideDown||stuck) ? recoveryTimer+dt : 0;
+  carRecoveryHint=recoveryTimer>2.5 ? "ЗАСТРЯЛИ? F / ПОДНЯТЬ" : "";
+  if(p.y < -8 || Math.abs(p.x)>115 || Math.abs(p.z)>115) recoverCar();
 }
 
 function capturePreviousTransforms() {
@@ -1654,11 +1612,12 @@ function processCollisions() {
     // Other players and loose props must not trigger local screen shake.
     if (rb1.handle !== playerPhysics.body?.handle && rb2.handle !== playerPhysics.body?.handle) return;
 
-    const v1 = rb1.linvel();
-    const v2 = rb2.linvel();
+    const v1 = collisionVelocities.get(rb1.handle) || rb1.linvel();
+    const v2 = collisionVelocities.get(rb2.handle) || rb2.linvel();
     const relVel = new THREE.Vector3(v1.x - v2.x, v1.y - v2.y, v1.z - v2.z);
-    const impactStrength = clamp(relVel.length() * 0.16, 0, 2);
-    if (impactStrength < 0.18) return;
+    const impactStrength = clamp((relVel.length() - 1.1) * 0.18, 0, 2);
+    if (impactStrength < 0.18 || collisionCooldown > 0) return;
+    collisionCooldown = 0.10;
 
     // Rapier 0.12 contactPair requires a callback; calling it without one
     // crashes on actual contact. Midpoint is a stable fallback for toy impacts.
@@ -1667,6 +1626,12 @@ function processCollisions() {
     const contactPoint = new THREE.Vector3(
       (t1.x + t2.x) / 2, (t1.y + t2.y) / 2, (t1.z + t2.z) / 2
     );
+    const groundHit=colliderMetadata.get(c1.handle)?.type==="ground" ||
+      colliderMetadata.get(c2.handle)?.type==="ground";
+    if(groundHit){
+      const p=playerPhysics.body.translation();
+      contactPoint.set(p.x,.09,p.z);
+    }
     spawnImpact(contactPoint, impactStrength);
   });
 }
@@ -1696,9 +1661,15 @@ function updateCamera(dt) {
 
 function stepPhysics(dt) {
   lastPhysicsDt = dt;
+  collisionVelocities.clear();
+  dynamicBodies.forEach(rb => {
+    const v=rb.linvel();
+    collisionVelocities.set(rb.handle,{x:v.x,y:v.y,z:v.z});
+  });
   applyPlayerForces(dt);
   world.step(eventQueue);
   processCollisions();
+  collisionCooldown=Math.max(0,collisionCooldown-dt);
 }
 
 function updateParticles(dt) {
