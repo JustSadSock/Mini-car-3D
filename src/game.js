@@ -1350,6 +1350,9 @@ function openOnlinePanel(){
   controlsPaused=true;
 }
 function closeOnlinePanel(){
+  // Dismissing an unsuccessful connection ends its retry loop.
+  // Drivers already in a room remain connected while racing.
+  if(!currentRoom)roomConnection.disconnect();
   onlinePanelOpen=false;
   document.getElementById("onlinePanel").hidden=true;
   document.getElementById("onlineBtn").setAttribute("aria-expanded","false");
