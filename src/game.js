@@ -87,7 +87,7 @@ const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setClearColor(0x0b0f16, 1);
-renderer.outputEncoding = THREE.sRGBEncoding;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.useLegacyLights = false;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.28;
@@ -1482,7 +1482,9 @@ function applyPlayerForces(dt) {
   let ax = joyX;
   let ay = joyY;
   if (joyActive && isCoarsePointer) {
-    ax = joyX; // invert turn handling globally to keep on-screen directions natural
+    // The model faces +Z; physics forward points -Z, hence mirrored input.
+    // Both touch axes must match the existing keyboard driving directions.
+    ax = -joyX;
     ay = -joyY;
   }
   if ((!joyActive || !isCoarsePointer) && ax === 0 && ay === 0) {
@@ -1604,9 +1606,11 @@ function processCollisions() {
     if (!started) return;
     const c1 = world.getCollider(h1);
     const c2 = world.getCollider(h2);
-    const rb1 = c1 ? world.getRigidBody(c1.parent()) : null;
-    const rb2 = c2 ? world.getRigidBody(c2.parent()) : null;
+    const rb1 = c1?.parent() != null ? world.getRigidBody(c1.parent()) : null;
+    const rb2 = c2?.parent() != null ? world.getRigidBody(c2.parent()) : null;
     if (!rb1 || !rb2) return;
+    // Other players and loose props must not trigger local screen shake.
+    if (rb1.handle !== playerPhysics.body?.handle && rb2.handle !== playerPhysics.body?.handle) return;
 
     const v1 = rb1.linvel();
     const v2 = rb2.linvel();
@@ -1614,20 +1618,13 @@ function processCollisions() {
     const impactStrength = clamp(relVel.length() * 0.16, 0, 2);
     if (impactStrength < 0.18) return;
 
-    let contactPoint = new THREE.Vector3();
-    const pair = world.contactPair(c1, c2);
-    if (pair && pair.manifolds?.length) {
-      const first = pair.manifolds[0];
-      if (first?.contacts?.length) {
-        const p = first.contacts[0].point();
-        contactPoint.set(p.x, p.y, p.z);
-      }
-    }
-    if (contactPoint.lengthSq() === 0) {
-      const t1 = rb1.translation();
-      const t2 = rb2.translation();
-      contactPoint.set((t1.x + t2.x) / 2, (t1.y + t2.y) / 2, (t1.z + t2.z) / 2);
-    }
+    // Rapier 0.12 contactPair requires a callback; calling it without one
+    // crashes on actual contact. Midpoint is a stable fallback for toy impacts.
+    const t1 = rb1.translation();
+    const t2 = rb2.translation();
+    const contactPoint = new THREE.Vector3(
+      (t1.x + t2.x) / 2, (t1.y + t2.y) / 2, (t1.z + t2.z) / 2
+    );
     spawnImpact(contactPoint, impactStrength);
   });
 }

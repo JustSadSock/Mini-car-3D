@@ -4,7 +4,8 @@
   "description": "Mini Car 3D local + online multiplayer server",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test"
   },
   "dependencies": {
     "ws": "^8.17.1"
