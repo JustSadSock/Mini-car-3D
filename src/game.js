@@ -1,5 +1,8 @@
 import * as THREE from "three";
 import { createDrivingChallenge } from "./challenge.js";
+import { createDiorama } from "./diorama.js";
+import { createRoadFeedback } from "./road-feedback.js";
+import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { createVehicleDynamics, normalizeWheels, SURFACES, SURFACE_PATCHES, TUNING } from "./vehicle-physics.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { clone as cloneSkeleton } from "three/examples/jsm/utils/SkeletonUtils.js";
@@ -83,22 +86,31 @@ function isInsideSafeZone(x, z, margin = 0) {
   return Math.hypot(dx, dz) < SAFE_ZONE.radius + margin;
 }
 
-// --- Renderer ---
-const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+// --- Renderer: soft toy-workshop material lighting with mobile-aware budgets ---
+const isMobileGPU = window.matchMedia("(pointer: coarse)").matches;
+const maximumPixelRatio = isMobileGPU ? 1.5 : 2;
+const renderer = new THREE.WebGLRenderer({
+  antialias: !isMobileGPU, alpha: false, powerPreference: "high-performance"
+});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, maximumPixelRatio));
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setClearColor(0x0b0f16, 1);
+renderer.setClearColor(0x37414b, 1);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.useLegacyLights = false;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.28;
+renderer.toneMappingExposure = 1.12;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 wrap.appendChild(renderer.domElement);
 
 // --- Scene / Camera ---
 const scene = new THREE.Scene();
-scene.fog = new THREE.Fog(0x0b0f16, 35, 140);
+scene.background = new THREE.Color(0x37414b);
+scene.fog = new THREE.Fog(0x37414b, 78, 205);
+const environmentGenerator = new THREE.PMREMGenerator(renderer);
+const environmentMap = environmentGenerator.fromScene(new RoomEnvironment(), 0.05).texture;
+scene.environment = environmentMap;
+environmentGenerator.dispose();
 
 const camera = new THREE.PerspectiveCamera(
   60,
@@ -108,18 +120,28 @@ const camera = new THREE.PerspectiveCamera(
 );
 
 // Lights (simple + cheap)
-const hemi = new THREE.HemisphereLight(0xdfe9ff, 0x1a2433, 0.9);
+const hemi = new THREE.HemisphereLight(0xe4ecff, 0x6e4f35, 1.25);
 scene.add(hemi);
-
-const sun = new THREE.DirectionalLight(0xffffff, 0.9);
-sun.position.set(12, 18, 10);
+const sun = new THREE.DirectionalLight(0xffe5bf, 2.6);
+sun.position.set(19, 38, 17);
+sun.castShadow = true;
+sun.shadow.mapSize.set(isMobileGPU ? 512 : 1024, isMobileGPU ? 512 : 1024);
+sun.shadow.camera.left = -39;
+sun.shadow.camera.right = 39;
+sun.shadow.camera.top = 39;
+sun.shadow.camera.bottom = -39;
+sun.shadow.camera.near = 1;
+sun.shadow.camera.far = 110;
+sun.shadow.bias = -0.00015;
+sun.shadow.normalBias = 0.025;
 scene.add(sun);
+scene.add(sun.target);
 
 // --- Ground: empty map ---
 const groundGeo = new THREE.PlaneGeometry(220, 220, 1, 1);
 const groundMat = new THREE.MeshStandardMaterial({
-  color: 0x232a35,
-  roughness: 1.0,
+  color: 0xa17d5a,
+  roughness: 0.94,
   metalness: 0.0
 });
 const ground = new THREE.Mesh(groundGeo, groundMat);
@@ -128,11 +150,6 @@ ground.position.y = 0;
 ground.receiveShadow = true;
 scene.add(ground);
 
-const grid = new THREE.GridHelper(220, 44, 0x3a4454, 0x2a3342);
-grid.material.transparent = true;
-grid.material.opacity = 0.25;
-grid.position.y = 0.01;
-scene.add(grid);
 // Grip patches are both visible surfaces and queried by each tire in physics.
 SURFACE_PATCHES.forEach(patch => {
   const kind = SURFACES[patch.type];
@@ -147,6 +164,9 @@ SURFACE_PATCHES.forEach(patch => {
   tile.receiveShadow=true;
   scene.add(tile);
 });
+// Workshop construction happens after the fixed ground physics body is registered.
+let diorama = null;
+const roadFeedback = createRoadFeedback(THREE, scene, { lowQuality: isMobileGPU });
 const challenge = createDrivingChallenge(THREE, scene);
 
 function registerBody(rb, mesh, collider, meta = {}) {
@@ -831,6 +851,12 @@ async function makeCar(isPlayer = true, withPhysics = true, spawnOverride = null
   const { wheelRig, radius } = categorizeWheels(car);
   const { headlights, tailLights } = collectLightMaterials(car);
   const bodyMaterials = collectBodyMaterials(car);
+  bodyMaterials.forEach(mat => {
+    mat.roughness = 0.31;
+    mat.metalness = 0.32;
+    mat.envMapIntensity = 1.15;
+    mat.needsUpdate = true;
+  });
   const headlightRig = attachHeadlights(car);
   if (!isPlayer) headlightRig.left.castShadow = false;
   const rearLights = attachRearLights(car);
@@ -1351,6 +1377,7 @@ window.addEventListener("keydown", (e) => {
   if (!e.repeat && e.code === "KeyL") toggleLights();
   if (!e.repeat && e.code === "KeyF") recoverCar();
   if (!e.repeat && e.code === "KeyP") toggleDiagnostics();
+  if (!e.repeat && e.code === "KeyC") nextCamera();
 });
 window.addEventListener("keyup", (e) => { keys.delete(e.code); });
 
@@ -1390,10 +1417,20 @@ const DRIVE = {
 };
 
 const CAMERA = {
-  offset: new THREE.Vector3(0, 6.0, -12.0),
-  lookAhead: new THREE.Vector3(0, 1.2, 6.5),
-  shakeDecay: 3.8,
+  presets: [
+    { name:"ПОГОНЯ", offset:new THREE.Vector3(0,5.1,-10.3), lead:6.6, fov:61 },
+    { name:"СВЕРХУ", offset:new THREE.Vector3(0,16,-13), lead:5.4, fov:56 },
+    { name:"КАРТА", offset:new THREE.Vector3(0,34,-0.45), lead:1.0, fov:52 }
+  ],
+  shakeDecay: 4.8
 };
+let cameraPreset = 0;
+let cameraYaw = 0;
+function nextCamera() {
+  cameraPreset = (cameraPreset+1)%CAMERA.presets.length;
+  document.getElementById("cameraBtn").textContent = CAMERA.presets[cameraPreset].name;
+  // Explicit button state is meaningful: every press cycles a distinct view.
+}
 
 function resetCar() {
   const rb = playerPhysics.body;
@@ -1413,7 +1450,8 @@ function resetCar() {
   recoveryTimer = 0;
   carRecoveryHint = "";
   cameraShake = 0;
-  camera.position.copy(CAMERA.offset).add(car.position);
+  camera.position.copy(CAMERA.presets[cameraPreset].offset).add(car.position);
+  roadFeedback.reset();
   challenge.reset();
   updateDrivingHud(1);
 }
@@ -1460,6 +1498,7 @@ document.getElementById("resetBtn").addEventListener("click", resetCar);
 document.getElementById("recoverBtn").addEventListener("click", recoverCar);
 document.getElementById("physicsBtn").addEventListener("click", toggleDiagnostics);
 document.getElementById("lightsBtn").addEventListener("click", toggleLights);
+document.getElementById("cameraBtn").addEventListener("click", nextCamera);
 
 let hudClock = 0;
 function updateDrivingHud(dt) {
@@ -1713,24 +1752,51 @@ function processCollisions() {
 
 function updateCamera(dt) {
   if (!car) return;
-  // Keep the camera upright even when the car rolls on its side.
-  const heading = new THREE.Vector3(0, 0, 1).applyQuaternion(car.quaternion);
-  const yaw = Math.atan2(heading.x, heading.z);
-  const yawOnly = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
-  const desired = CAMERA.offset.clone().applyQuaternion(yawOnly).add(car.position);
-  desired.y = Math.max(2.5, desired.y);
-  camera.position.lerp(desired, 1 - Math.pow(0.001, dt));
-  camera.up.set(0, 1, 0);
-  const look = CAMERA.lookAhead.clone().applyQuaternion(yawOnly).add(car.position);
+  const preset=CAMERA.presets[cameraPreset];
+  const heading=new THREE.Vector3(0,0,1).applyQuaternion(car.quaternion);
+  const yaw=Math.atan2(heading.x,heading.z);
+  const delta=((yaw-cameraYaw+Math.PI*3)%(Math.PI*2))-Math.PI;
+  cameraYaw+=delta*(1-Math.exp(-6.4*dt));
+  const yawQuat=new THREE.Quaternion().setFromAxisAngle(
+    new THREE.Vector3(0,1,0),cameraYaw);
 
-  if (cameraShake > 0.0001) {
-    const shakeVec = new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5)
-      .multiplyScalar(cameraShake);
-    camera.position.add(shakeVec);
-    look.add(shakeVec.clone().multiplyScalar(0.5));
-    cameraShake = Math.max(0, cameraShake - dt * CAMERA.shakeDecay);
+  const speed=Math.abs(car.userData.lastSpeed||0);
+  const offset=preset.offset.clone();
+  if(cameraPreset===0)offset.z-=Math.min(2,speed*.09);
+  const desired=offset.applyQuaternion(yawQuat).add(car.position);
+  desired.y=Math.max(2.6,desired.y);
+  const look=new THREE.Vector3(0,1.15,preset.lead)
+    .applyQuaternion(yawQuat).add(car.position);
+
+  // Avoid disappearing behind service-station walls and roadside equipment.
+  if(cameraPreset!==2){
+    const rayVector=desired.clone().sub(look);
+    const distance=rayVector.length();
+    if(distance>0.01){
+      const ray=new RAPIER.Ray(
+        {x:look.x,y:look.y,z:look.z},
+        {x:rayVector.x/distance,y:rayVector.y/distance,z:rayVector.z/distance}
+      );
+      const hit=world.castRay(ray,distance,true,undefined,undefined,
+        playerPhysics.collider,playerPhysics.body);
+      if(hit && Number.isFinite(hit.toi) && hit.toi<distance){
+        desired.copy(look).addScaledVector(rayVector.normalize(),
+          Math.max(.65,hit.toi-.48));
+      }
+    }
   }
+  camera.position.lerp(desired,1-Math.exp(-8.1*dt));
+  camera.up.set(0,1,0);
 
+  if(cameraShake>.0001){
+    const shake=new THREE.Vector3(Math.random()-.5,Math.random()-.5,Math.random()-.5)
+      .multiplyScalar(cameraShake*(cameraPreset===2?.25:1));
+    camera.position.add(shake);
+    cameraShake=Math.max(0,cameraShake-dt*CAMERA.shakeDecay);
+  }
+  camera.fov=THREE.MathUtils.damp(camera.fov,
+    preset.fov+(cameraPreset===0?Math.min(6,speed*.31):0),5.4,dt);
+  camera.updateProjectionMatrix();
   camera.lookAt(look);
 }
 
@@ -1787,6 +1853,8 @@ function tick(now) {
   }
 
   updateRemotePlayers(blendDt);
+  diorama?.update(blendDt);
+  roadFeedback.update(blendDt, car, playerPhysics.telemetry);
   challenge.update(blendDt, car?.position, Math.abs(car?.userData.lastSpeed || 0));
   updateDrivingHud(blendDt);
 
@@ -1801,11 +1869,14 @@ function tick(now) {
 
 async function startGame() {
   makeGroundAndBounds();
+  diorama = createDiorama({
+    THREE,RAPIER,scene,world,ground,registerBody,lowQuality:isMobileGPU
+  });
   makeRamps();
-  spawnProps(20);
+  // Hand-crafted physical scenery replaces random, incoherent primitives.
   await setupPlayerCar();
   document.getElementById("loadOverlay").hidden = true;
-  camera.position.copy(CAMERA.offset).add(car.position);
+  camera.position.copy(CAMERA.presets[cameraPreset].offset).add(car.position);
   updateDrivingHud(1);
   initNetwork();
   requestAnimationFrame(tick);
@@ -1820,7 +1891,7 @@ startGame().catch((error) => {
 
 // Resize
 function onResize() {
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, maximumPixelRatio));
   renderer.setSize(window.innerWidth, window.innerHeight);
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
