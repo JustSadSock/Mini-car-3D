@@ -1510,7 +1510,9 @@ function updateDrivingHud(dt) {
   document.getElementById("courseStatus").textContent = s.finished ? "ФИНИШ · Новый круг" :
     (s.running ? `Ворота ${s.next}/${s.total} · ${s.time.toFixed(1)} с` : `Ворота ${s.next}/${s.total} · Старт`);
   document.getElementById("recordValue").textContent = s.best ? `${s.best.toFixed(2)} с` : "—";
+  document.getElementById("driveStats").classList.toggle("lap-finished",s.finished);
   const state=playerPhysics.telemetry;
+  document.getElementById("surfaceStatus").dataset.surface = state?.surface || "air";
   document.getElementById("surfaceStatus").textContent = carRecoveryHint ||
     (!state || !state.grounded ? "В ВОЗДУХЕ" :
       `${SURFACES[state.surface]?.label || "ПОВЕРХНОСТЬ"} · ${state.contacts}/4`);
@@ -1606,8 +1608,10 @@ class ParticlePool {
   }
 }
 
-const impactParticles = new ParticlePool(200, 0xffd7a6, 0.18, true);
-const skidParticles = new ParticlePool(160, 0xd0d0d0, 0.12, false);
+const impactParticles = new ParticlePool(isMobileGPU?100:200, 0xffd7a6, 0.18, true);
+const skidParticles = new ParticlePool(isMobileGPU?80:160, 0xd0d0d0, 0.12, false);
+const dirtDust = new ParticlePool(isMobileGPU?60:120, 0xac835d, 0.24, false);
+const iceMist = new ParticlePool(isMobileGPU?45:90, 0xd0ebf4, 0.14, false);
 let skidCooldown = 0;
 
 function spawnImpact(origin, strength) {
@@ -1616,9 +1620,10 @@ function spawnImpact(origin, strength) {
   cameraShake = Math.max(cameraShake, strength * 0.06); // raise for more shake (arcade)
 }
 
-function spawnSkid(origin, direction, intensity) {
+function spawnSkid(origin, direction, intensity, surface="asphalt") {
   const dir = direction.clone().normalize().multiplyScalar(intensity * 0.4);
-  skidParticles.spawn(origin, 6, 1.4, [0.28, 0.45], dir);
+  const effect = surface==="dirt"?dirtDust:surface==="ice"?iceMist:skidParticles;
+  effect.spawn(origin, 6, surface==="dirt"?2.1:1.4, [0.25, 0.65], dir);
 }
 
 function applyPlayerForces(dt) {
@@ -1649,7 +1654,7 @@ function applyPlayerForces(dt) {
     const lateral = new THREE.Vector3(1,0,0).applyQuaternion(
       new THREE.Quaternion(quat.x,quat.y,quat.z,quat.w));
     spawnSkid(new THREE.Vector3(pos.x, Math.max(.06,pos.y-.32),pos.z),
-      lateral,clamp(state.slip/7,.2,1));
+      lateral,clamp(state.slip/7,.2,1),state.surface);
     skidCooldown=.085;
   }
   skidCooldown = Math.max(0,skidCooldown-dt);
@@ -1815,6 +1820,8 @@ function stepPhysics(dt) {
 function updateParticles(dt) {
   impactParticles.update(dt, 9.8 * 0.4);
   skidParticles.update(dt, 9.8 * 0.25);
+  dirtDust.update(dt, 9.8 * 0.3);
+  iceMist.update(dt, 9.8 * 0.12);
 }
 
 function tick(now) {
