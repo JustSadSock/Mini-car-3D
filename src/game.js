@@ -1484,6 +1484,7 @@ function resetCar() {
 function setMode(next) {
   if(!MODE_CONFIG[next])return;
   const spawn=modeEngine.select(next);
+  challenge.reset();
   challenge.setActive(next==="slalom");
   document.getElementById("resultPanel").hidden=true;
   document.getElementById("modePanel").hidden=true;
@@ -1530,7 +1531,7 @@ function showModeResult(result) {
   document.getElementById("resultMedal").dataset.medal=result.medal;
   document.getElementById("resultValue").textContent=result.value.toFixed(2)+" с";
   document.getElementById("resultDetail").textContent=result.improved?
-    "НОВЫЙ РЕКОРД · СОХРАНЕНО":"РЕЗУЛЬТАТ СОХРАНЁН В ИСТОРИИ ЗАЕЗДА";
+    "НОВЫЙ РЕКОРД · СОХРАНЕНО":"ЛИЧНЫЙ РЕКОРД НЕ ПОБИТ";
   el.hidden=false;
 }
 document.getElementById("modeBtn").addEventListener("click",openModePanel);
