@@ -74,3 +74,60 @@ test("real Rapier: ice has measurably less acceleration than asphalt",async()=>{
   asphalt.world.free();
   ice.world.free();
 });
+
+test("real Rapier: wheel physics stays consistent at 30/60/120 render FPS",async()=>{
+  await RAPIER.init();
+  const results=[];
+  for(const fps of [30,60,120]) {
+    const sim=setup();
+    let accumulator=0;
+    for(let frame=0;frame<fps*3;frame++) {
+      accumulator+=1/fps;
+      while(accumulator+1e-9>=1/60) {
+        sim.vehicle.step(1/60,.18,1);
+        sim.world.step();
+        accumulator-=1/60;
+      }
+    }
+    results.push({
+      x:sim.body.translation().x,
+      y:sim.body.translation().y,
+      z:sim.body.translation().z
+    });
+    sim.world.free();
+  }
+  for(const result of results.slice(1)) {
+    assert.ok(Math.abs(result.x-results[0].x)<.05,"x drift by render refresh rate");
+    assert.ok(Math.abs(result.y-results[0].y)<.05,"y drift by render refresh rate");
+    assert.ok(Math.abs(result.z-results[0].z)<.05,"z drift by render refresh rate");
+  }
+});
+
+test("real Rapier: collider parent is an actual rigid body usable for collision effects",async()=>{
+  await RAPIER.init();
+  const world=new RAPIER.World({x:0,y:-9.81,z:0});
+  const ground=world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
+  const groundCollider=world.createCollider(
+    RAPIER.ColliderDesc.cuboid(10,.1,10).setTranslation(0,-.05,0),ground);
+  const car=world.createRigidBody(RAPIER.RigidBodyDesc.dynamic().setTranslation(0,2,0));
+  const carCollider=world.createCollider(RAPIER.ColliderDesc.cuboid(.5,.3,1),car);
+  assert.equal(carCollider.parent().handle,car.handle);
+  assert.equal(groundCollider.parent().handle,ground.handle);
+  const queue=new RAPIER.EventQueue(true);
+  carCollider.setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS);
+  let collisions=0;
+  for(let i=0;i<200;i++) {
+    world.step(queue);
+    queue.drainCollisionEvents((h1,h2,started)=>{
+      if(!started)return;
+      const a=world.getCollider(h1)?.parent();
+      const b=world.getCollider(h2)?.parent();
+      assert.ok(a && b);
+      assert.ok(Number.isFinite(a.linvel().y));
+      assert.ok(Number.isFinite(b.linvel().y));
+      collisions++;
+    });
+  }
+  assert.ok(collisions>=1,"falling rigidbody should generate contact event");
+  world.free();
+});
