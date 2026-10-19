@@ -182,3 +182,19 @@ html,body{
   #netStatus{display:none;}
 }
 @media(prefers-reduced-motion:reduce){#driveActions button{transition:none;}}
+
+/* State-driven instrument feedback; only genuine lap completions animate. */
+#driveStats.lap-finished{
+  border-top-color:#f8d8a4;
+  box-shadow:0 0 0 1px rgba(250,207,152,.45),0 8px 32px rgba(247,171,99,.34);
+  animation:finish-pulse .65s ease-out 2;
+}
+@keyframes finish-pulse{
+  0%,100%{filter:brightness(1)}
+  45%{filter:brightness(1.23)}
+}
+#surfaceStatus[data-surface="ice"]{color:#a7e2f4;}
+#surfaceStatus[data-surface="dirt"]{color:#e1a278;}
+#surfaceStatus[data-surface="rubber"]{color:#f2d37d;}
+#surfaceStatus[data-surface="air"]{color:#b8c3c7;}
+@media(prefers-reduced-motion:reduce){#driveStats.lap-finished{animation:none;}}

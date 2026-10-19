@@ -33,7 +33,14 @@ test("desktop: render an active 3D diorama and drive",async({page},testInfo)=>{
   await expect(page.locator("#courseStatus")).toContainText("Ворота 1/");
 });
 
-test("mobile portrait: viewport-safe controls and full world",async({page},testInfo)=>{
+test.describe("real touch emulation",()=>{
+  test.use({
+    viewport:{width:390,height:844},
+    isMobile:true,
+    hasTouch:true,
+    deviceScaleFactor:2
+  });
+  test("mobile portrait: viewport-safe controls and full world",async({page},testInfo)=>{
   await page.setViewportSize({width:390,height:844});
   await loadGame(page);
   await expect(page.locator("#driveActions button")).toHaveCount(5);
@@ -48,7 +55,17 @@ test("mobile portrait: viewport-safe controls and full world",async({page},testI
   }
   await page.locator("#lightsBtn").click();
   await expect(page.locator("#lightsBtn")).toHaveAttribute("aria-pressed","false");
+  const joy=await page.locator("#joy").boundingBox();
+  expect(joy).not.toBeNull();
+  // True coarse-pointer mode: dragging on the joystick must accelerate the car.
+  await page.mouse.move(joy.x+joy.width/2,joy.y+joy.height/2);
+  await page.mouse.down();
+  await page.mouse.move(joy.x+joy.width/2,joy.y+joy.height*.13,{steps:5});
+  await page.waitForTimeout(900);
+  await page.mouse.up();
+  expect(Number(await page.locator("#speedValue").innerText())).toBeGreaterThan(0);
   await page.screenshot({path:testInfo.outputPath("mobile-workshop.png")});
+  });
 });
 
 test("landscape: camera and touch controls remain accessible",async({page},testInfo)=>{
