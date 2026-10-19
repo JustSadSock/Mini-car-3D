@@ -43,9 +43,9 @@ test.describe("real touch emulation",()=>{
   test("mobile portrait: viewport-safe controls and full world",async({page},testInfo)=>{
   await page.setViewportSize({width:390,height:844});
   await loadGame(page);
-  await expect(page.locator("#driveActions button")).toHaveCount(5);
+  await expect(page.locator("#driveActions button")).toHaveCount(6);
   await expect(page.locator("#brandPlate")).toBeVisible();
-  const ids=["resetBtn","lightsBtn","recoverBtn","physicsBtn","cameraBtn"];
+  const ids=["resetBtn","lightsBtn","recoverBtn","physicsBtn","cameraBtn","modeBtn"];
   for(const id of ids){
     const r=await page.locator("#"+id).boundingBox();
     expect(r).not.toBeNull();

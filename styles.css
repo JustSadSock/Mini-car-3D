@@ -198,3 +198,92 @@ html,body{
 #surfaceStatus[data-surface="rubber"]{color:#f2d37d;}
 #surfaceStatus[data-surface="air"]{color:#b8c3c7;}
 @media(prefers-reduced-motion:reduce){#driveStats.lap-finished{animation:none;}}
+
+/* Workshop mission instrumentation — utilitarian enamel and folded metal. */
+.active-mode{display:flex;align-items:center;gap:10px;font-weight:900;
+  font-size:10px;letter-spacing:.14em;color:#ffe0a9;}
+.active-mode em{font-style:normal;color:#95bdbe;
+  font:800 11px ui-monospace,Consolas,monospace;}
+#courseStatus{white-space:normal;line-height:1.28;max-width:236px;}
+.mode-toast{position:absolute;top:calc(env(safe-area-inset-top,0px) + 225px);
+  left:calc(env(safe-area-inset-left,0px) + 14px);
+  padding:9px 13px;background:#233039e8;color:#ffe0b2;font-size:11px;font-weight:850;
+  border-left:4px solid #edac63;box-shadow:0 5px 20px #131d26a6;max-width:320px;
+  letter-spacing:.03em;}
+.mode-toast[hidden]{display:none;}
+.garage-overlay{position:fixed;inset:0;z-index:18;pointer-events:auto;
+  padding:calc(env(safe-area-inset-top,0px) + 18px)
+          calc(env(safe-area-inset-right,0px) + 18px)
+          calc(env(safe-area-inset-bottom,0px) + 18px)
+          calc(env(safe-area-inset-left,0px) + 18px);
+  overflow-y:auto;background:rgba(16,23,29,.82);backdrop-filter:blur(10px);
+  display:flex;align-items:center;justify-content:center;color:#f4e5d1;
+  font-family:system-ui,-apple-system,"Segoe UI",sans-serif;}
+.garage-overlay[hidden]{display:none;}
+.garage-sheet{width:min(775px,100%);max-height:100%;overflow-y:auto;
+  background:#303b42;border:2px solid #bd916c;border-top:7px solid #bd6f45;
+  box-shadow:0 20px 70px #050c12a9,inset 0 1px #ffdeaf2e;
+  padding:clamp(16px,3vw,29px);}
+.garage-heading{display:flex;justify-content:space-between;align-items:start;gap:15px;}
+.garage-heading small,.result-eyebrow{font-size:10px;color:#e3b57d;font-weight:850;
+  letter-spacing:.16em;}
+.garage-heading h2{font-size:clamp(23px,5vw,38px);line-height:1;
+  letter-spacing:-.045em;margin:9px 0 10px;font-weight:950;}
+.garage-heading p{font-size:13px;color:#d1c6b8;margin:0 0 23px;}
+.sheet-close{font-size:20px;color:#efdbb8;background:#1e2b34;
+  border:1px solid #a18166;min-width:43px;min-height:43px;cursor:pointer;}
+.garage-modes{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;}
+.garage-mode{background:linear-gradient(145deg,#42505a,#303b44);
+  border:1px solid #7f8480;border-left:5px solid #bd7850;
+  color:#f7e6cf;padding:16px 16px 14px;text-align:left;cursor:pointer;
+  display:flex;flex-direction:column;gap:7px;min-height:165px;
+  transition:background .15s ease,transform .15s ease;}
+.garage-mode:hover,.garage-mode:focus-visible{background:#53616b;
+  transform:translateY(-2px);outline-color:#f0ba78;}
+.garage-mode[aria-current="true"]{border-color:#efca94;border-left-color:#f7dc9e;}
+.mode-number{font:800 12px ui-monospace,monospace;color:#e2b686;
+  display:flex;justify-content:space-between;}
+.mode-number span{font-size:26px;line-height:.65;}
+.garage-mode strong{font-size:20px;font-weight:950;letter-spacing:.02em;}
+.garage-mode small{color:#d5c9bb;font-size:12px;line-height:1.45;}
+.mode-best{font-style:normal;font-size:10px;letter-spacing:.04em;
+  color:#f2c88c;font-weight:850;margin-top:auto;}
+.garage-note{text-align:center;font-size:10px;color:#e4bea0;
+  letter-spacing:.07em;margin:19px 0 0;}
+.result-sheet{width:min(480px,100%);text-align:center;padding:34px 26px 25px;
+  background:linear-gradient(155deg,#3d4952,#202b34);
+  border:2px solid #d3a26c;border-top:8px solid #b86e49;
+  box-shadow:0 16px 65px #111921b8;}
+.result-sheet h2{font-size:24px;font-weight:950;margin:14px 0 20px;}
+.result-medal{margin:0 auto 10px;min-width:138px;width:max-content;padding:9px 19px;
+  border:2px solid #a0aaa9;letter-spacing:.14em;font-weight:950;}
+.result-medal[data-medal="gold"]{color:#ffdf8c;border-color:#e3b252;}
+.result-medal[data-medal="silver"]{color:#d9e4ee;border-color:#a7c1d3;}
+.result-medal[data-medal="bronze"]{color:#e4ab82;border-color:#bd815a;}
+.result-value{display:block;color:#ffe0a7;font:900 51px ui-monospace,monospace;
+  letter-spacing:-.07em;}
+#resultDetail{font-size:11px;color:#d7cbbd;letter-spacing:.055em;}
+.result-actions{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin-top:23px;}
+.result-actions button{background:#e7b279;color:#28333b;padding:11px 13px;
+  font-size:11px;font-weight:950;border:0;cursor:pointer;min-height:42px;}
+.result-actions button:last-child{background:#45535b;color:#f4dfbf;border:1px solid #b28d66;}
+@media(max-width:670px){
+ #driveActions{grid-template-columns:repeat(3,44px);}
+ #driveStats{max-width:calc(100vw - 155px);}
+ .runStats{white-space:normal;}
+ #courseStatus{max-width:170px;font-size:10px;}
+ .mode-toast{top:calc(env(safe-area-inset-top,0px) + 205px);max-width:205px;
+   font-size:10px;}
+ .garage-overlay{align-items:flex-start;}
+ .garage-modes{grid-template-columns:1fr;}
+ .garage-mode{min-height:119px;padding:11px 13px;}
+ .garage-mode strong{font-size:17px;}
+ .garage-mode small{font-size:11px;}
+ .garage-heading h2{font-size:25px;}
+ .result-value{font-size:43px;}
+}
+@media(max-height:550px) and (orientation:landscape){
+ .garage-sheet,.result-sheet{max-height:calc(100vh - 20px);overflow-y:auto;}
+ .garage-modes{grid-template-columns:repeat(2,minmax(0,1fr));}
+ .garage-mode{min-height:110px;}
+}

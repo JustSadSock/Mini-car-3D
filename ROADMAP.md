@@ -47,11 +47,15 @@
 - [ ] Improve model material roughness and add ambient contact shading after visual QA.
 
 ## P3 — Game modes
-- Skill tests: slalom, stunt park, delivery, parking, rally, domino / physics puzzle.
-- Combo + precision scoring with clear fairness and medal thresholds.
-- Track editor with checkpoints, physical props and local save/load.
-- Lap ghosts, splits and replays, seeded daily challenges, scenario records.
-- Distinct cars with genuinely different handling (not cosmetic stats).
+- [x] Dedicated in-game mode picker and repeatable goals: nine-gate slalom, two courier deliveries, three precision parking bays, two true-airtime ramp jumps.
+- [x] Courier loading dwell and visible parcel; collision damage resets pickup after three heavy hits, applies time penalties.
+- [x] Parking requires position, precise yaw, low speed and 1.65 s dwell.
+- [x] Stunt score comes from real grounded->airborne->grounded Rapier state and horizontal distance; stages use both physical ramps.
+- [x] Saved per-mode personal bests and gold/silver/bronze thresholds; full result/next/retry flow.
+- [x] 3D target markers, parking alignment, cargo model, mode HUD and route guidance.
+- [ ] Browser acceptance tests for all four mode transitions and result persistence.
+- [ ] Future expansion: track editor with save/load, lap ghosts/replays, daily layouts.
+- [ ] Future expansion: different car chassis/handling, cargo weight and physics puzzle courses.
 
 ## P4 — Multiplayer / PocketWorks integration
 - Replace hard-coded external host with Pocketnet room semantics and reconnection.

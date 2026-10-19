@@ -27,7 +27,7 @@
     </div>
     <div id="netStatus" class="net-offline">Автономная мастерская</div>
     <div id="driveStats"><div class="speed"><strong id="speedValue">0</strong><span>км/ч</span></div>
-      <div class="runStats"><span id="courseStatus">Ворота 1/9 · Старт</span><small>РЕКОРД <b id="recordValue">—</b></small><small id="surfaceStatus">ПОКРЫТИЕ · —</small></div>
+      <div class="runStats"><span class="active-mode"><b id="modeName">СЛАЛОМ</b><em id="modeProgress">1/9</em></span><span id="courseStatus">Ворота 1/9 · Старт</span><small>РЕКОРД <b id="recordValue">—</b></small><small id="surfaceStatus">ПОКРЫТИЕ · —</small></div>
     </div>
     <div id="physicsDebug" hidden aria-live="off"></div>
     <div id="driveActions">
@@ -36,13 +36,63 @@
       <button id="recoverBtn" title="Выровнять машину (F)" aria-label="Выровнять машину">⟲ <span>ПОДНЯТЬ</span></button>
       <button id="physicsBtn" title="Диагностика подвески (P)" aria-label="Диагностика физики" aria-pressed="false">≋ <span>ФИЗИКА</span></button>
       <button id="cameraBtn" title="Поменять ракурс (C)" aria-label="Поменять ракурс">ПОГОНЯ</button>
+      <button id="modeBtn" title="Выбрать режим (M)" aria-label="Выбрать игровой режим" aria-expanded="false">✦ <span>РЕЖИМЫ</span></button>
     </div>
-    <div id="controlTip">WASD — вести · C — камера · F — поднять · P — физика</div>
+    <div id="modeToast" class="mode-toast" hidden role="status"></div>
+    <div id="controlTip">WASD — вести · M — задания · C — камера · F — поднять</div>
     <div id="joy" role="group" aria-label="Руль и газ">
       <div id="joyBase"></div>
       <div id="joyNub"></div>
     </div>
   </div>
+
+  <section id="modePanel" class="garage-overlay" role="dialog" aria-modal="true"
+           aria-label="Выбор испытания" hidden>
+    <div class="garage-sheet">
+      <div class="garage-heading"><div><small>TINY MOTOR CLUB · АВТОПОЛИГОН</small>
+        <h2>ВЫБЕРИ ИСПЫТАНИЕ</h2><p>Четыре способа управлять одной физической машиной.</p>
+      </div><button id="modeCloseBtn" class="sheet-close" aria-label="Вернуться к вождению">✕</button></div>
+      <div class="garage-modes">
+        <button type="button" class="garage-mode" data-mode="slalom">
+          <span class="mode-number">01 <span>⌁</span></span><strong>СЛАЛОМ</strong>
+          <small>Девять ворот, одна попытка на лучшее время.</small>
+          <em class="mode-best">ЕЩЁ НЕ ПРОЙДЕНО</em>
+        </button>
+        <button type="button" class="garage-mode" data-mode="courier">
+          <span class="mode-number">02 <span>▣</span></span><strong>КУРЬЕР</strong>
+          <small>Забери посылку, доставь и привези вторую. Не разбей груз.</small>
+          <em class="mode-best">ЕЩЁ НЕ ПРОЙДЕНО</em>
+        </button>
+        <button type="button" class="garage-mode" data-mode="parking">
+          <span class="mode-number">03 <span>⊞</span></span><strong>ПАРКОВКА</strong>
+          <small>Три узких кармана. Выравнивай автомобиль и удерживай тормоз.</small>
+          <em class="mode-best">ЕЩЁ НЕ ПРОЙДЕНО</em>
+        </button>
+        <button type="button" class="garage-mode" data-mode="stunt">
+          <span class="mode-number">04 <span>↗</span></span><strong>ПОЛЁТ</strong>
+          <small>Два физических трамплина. Засчитываются только приземления.</small>
+          <em class="mode-best">ЕЩЁ НЕ ПРОЙДЕНО</em>
+        </button>
+      </div>
+      <p class="garage-note">ЗОЛОТО / СЕРЕБРО / БРОНЗА · РЕКОРДЫ СОХРАНЯЮТСЯ ЛОКАЛЬНО</p>
+    </div>
+  </section>
+
+  <section id="resultPanel" class="garage-overlay result-overlay" role="dialog"
+           aria-modal="true" aria-label="Результат испытания" hidden>
+    <div class="result-sheet">
+      <small class="result-eyebrow">TINY MOTOR CLUB · ПРОТОКОЛ ЗАЕЗДА</small>
+      <h2 id="resultTitle">ЗАЕЗД ЗАВЕРШЁН</h2>
+      <div id="resultMedal" class="result-medal" data-medal="finish">ФИНИШ</div>
+      <strong id="resultValue" class="result-value">0.00 с</strong>
+      <p id="resultDetail">РЕЗУЛЬТАТ СОХРАНЁН</p>
+      <div class="result-actions">
+        <button type="button" id="resultRetry">ЕЩЁ РАЗ</button>
+        <button type="button" id="resultNext">СЛЕДУЮЩЕЕ ЗАДАНИЕ</button>
+        <button type="button" id="resultModes">ВЫБОР РЕЖИМА</button>
+      </div>
+    </div>
+  </section>
 
   <script type="importmap">
     {
