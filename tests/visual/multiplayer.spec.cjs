@@ -41,6 +41,18 @@ test("browser host, guest, isolated room and resumable co-op convoy",async({page
   const joined=await guest.wait("room");
   expect(joined.members).toHaveLength(2);
   await expect(page.locator(".lobby-member")).toHaveCount(2,{timeout:12000});
+  await expect.poll(()=>guest.last("physics")?.players?.length,{timeout:15000}).toBe(2);
+  await expect.poll(()=>guest.last("physics")?.props?.length,{timeout:15000}).toBe(3);
+  const original=guest.last("physics").players.find(p=>p.id===guest.last("welcome").id);
+  expect(original).toBeTruthy();
+  for(let i=0;i<18;i++){
+    guest.ws.send(JSON.stringify({type:"input",input:{x:0,y:1,seq:i+1}}));
+    await page.waitForTimeout(55);
+  }
+  await expect.poll(()=>{
+    const current=guest.last("physics")?.players.find(p=>p.id===original.id);
+    return current?.p[2]||0;
+  },{timeout:16000}).toBeGreaterThan(original.p[2]+.35);
   await expect(page.locator("#startConvoyBtn")).toBeEnabled();
   await page.locator("#startConvoyBtn").click();
   await guest.wait("race-start");
