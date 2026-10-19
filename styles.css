@@ -287,3 +287,8 @@ html,body{
  .garage-modes{grid-template-columns:repeat(2,minmax(0,1fr));}
  .garage-mode{min-height:110px;}
 }
+
+#modeExtra{display:block;color:#d8c5a8;white-space:normal;line-height:1.4;
+  font-weight:750;letter-spacing:.025em;font-size:9px;}
+#modeTimer{color:#f9ddb8;font-variant-numeric:tabular-nums;}
+@media(max-width:670px){#modeExtra{max-width:170px;font-size:8px;}}

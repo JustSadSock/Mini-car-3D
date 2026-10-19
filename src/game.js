@@ -1606,6 +1606,16 @@ function updateDrivingHud(dt) {
         `Ворота ${s.next}/${s.total} · Старт`)):
     (activity.completed?"ИСПЫТАНИЕ ВЫПОЛНЕНО":
       activity.hint || MODE_CONFIG[activity.id].subtitle);
+  document.getElementById("modeTimer").textContent=
+    (activity.id==="slalom"?s.time:activity.elapsed).toFixed(1)+" с";
+  document.getElementById("modeExtra").textContent=activity.id==="courier"?
+    (activity.carrying?"ГРУЗ НА БОРТУ · ПОВРЕЖДЕНИЯ "+activity.damage+"/3":
+      "БАГАЖНИК ПУСТ · ШТРАФ "+activity.penalties+" С"):
+    activity.id==="parking"?
+      ("ТОЧНОСТЬ И ОСТАНОВКА · "+Math.round(activity.hold/1.65*100)+"%"):
+    activity.id==="stunt"?
+      ("В ВОЗДУХЕ "+activity.totalAir.toFixed(2)+" С · "+activity.progress):
+      "9 ВОРОТ · МАРШРУТ НА ВРЕМЯ";
   const record=activity.record;
   document.getElementById("recordValue").textContent=record?
     record.value.toFixed(2)+" с":(s.best&&activity.id==="slalom"?
