@@ -65,6 +65,10 @@
       <div id="lobbyDisconnected">
         <label class="garage-label" for="driverName">ИМЯ ВОДИТЕЛЯ</label>
         <input id="driverName" autocomplete="nickname" maxlength="18" value="Водитель">
+        <label class="garage-label" for="roomServerUrl">СЕРВЕР КОМНАТ <small>(НЕОБЯЗАТЕЛЬНО)</small></label>
+        <input id="roomServerUrl" type="url" inputmode="url" spellcheck="false"
+          placeholder="Этот сайт или https://ваш-сервер.example">
+        <p class="server-hint">Оставьте пустым для игры на этом сервере. Для внешней оболочки укажите адрес установленного WebSocket-сервера.</p>
         <div class="garage-connect">
           <button id="createLobbyBtn">СОЗДАТЬ КОМНАТУ</button>
           <div class="join-grid">

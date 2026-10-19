@@ -341,3 +341,7 @@ html,body{
  .join-grid{width:100%;flex:auto;}
  #convoyHud{top:calc(env(safe-area-inset-top,0px) + 240px);max-width:184px;}
 }
+
+.server-hint{font-size:11px;line-height:1.5;color:#c7c0b4;
+ margin:8px 0 3px;max-width:520px;}
+.multiplayer-sheet .garage-label small{font-size:9px;color:#b7b3ab;}

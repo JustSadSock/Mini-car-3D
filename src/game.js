@@ -1358,10 +1358,12 @@ function closeOnlinePanel(){
 document.getElementById("onlineBtn").addEventListener("click",openOnlinePanel);
 document.getElementById("onlineCloseBtn").addEventListener("click",closeOnlinePanel);
 document.getElementById("createLobbyBtn").addEventListener("click",()=>{
+  if(!roomConnection.setServer(document.getElementById("roomServerUrl").value))return;
   displayLobbyStatus("Создаём приватную комнату…");
   roomConnection.create(document.getElementById("driverName").value);
 });
 document.getElementById("joinLobbyBtn").addEventListener("click",()=>{
+  if(!roomConnection.setServer(document.getElementById("roomServerUrl").value))return;
   displayLobbyStatus("Проверяем код приглашения…");
   roomConnection.join(document.getElementById("joinCodeInput").value,
     document.getElementById("driverName").value);
@@ -1378,6 +1380,8 @@ document.getElementById("copyInviteBtn").addEventListener("click",async()=>{
   const code=currentRoom?.code;if(!code)return;
   const invite=new URL(location.href);
   invite.searchParams.set("room",code);
+  const endpoint=document.getElementById("roomServerUrl").value.trim();
+  if(endpoint)invite.searchParams.set("server",endpoint);
   try{
     await navigator.clipboard.writeText(invite.toString());
     displayLobbyStatus("Ссылка-приглашение скопирована");
@@ -1390,6 +1394,8 @@ document.getElementById("copyInviteBtn").addEventListener("click",async()=>{
   }
 });
 const roomFromLink=new URLSearchParams(location.search).get("room");
+const roomServerFromLink=new URLSearchParams(location.search).get("server");
+if(roomServerFromLink)document.getElementById("roomServerUrl").value=roomServerFromLink;
 if(roomFromLink && /^[A-HJ-NP-Z2-9]{6}$/i.test(roomFromLink)){
   document.getElementById("joinCodeInput").value=roomFromLink.toUpperCase();
 }

@@ -39,9 +39,12 @@ const MIME = {
   '.glb': 'model/gltf-binary'
 };
 
+const EXTRA_ORIGINS=new Set((process.env.ALLOWED_ORIGINS||"")
+  .split(",").map(s=>s.trim()).filter(Boolean));
 const CORS = {
   allowList(origin) {
     if (!origin) return '*';
+    if (EXTRA_ORIGINS.has(origin)) return origin;
     if (origin.endsWith('.netlify.app')) return origin;
     if (origin === 'https://mini-car-3d.netlify.app') return origin;
     return null;
