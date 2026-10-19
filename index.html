@@ -6,7 +6,9 @@
         content="width=device-width, height=device-height, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <title>Mini Car 3D</title>
+  <title>Mini Car 3D — Tiny Motor Club</title>
+  <meta name="theme-color" content="#303840" />
+  <link rel="icon" type="image/svg+xml" href="assets/tiny-motor-icon.svg" />
   <link rel="stylesheet" href="styles.css">
 </head>
 
@@ -19,7 +21,11 @@
     <button id="retryLoad" onclick="location.reload()" hidden>Повторить</button>
   </div>
   <div id="hud">
-    <div id="netStatus" class="net-offline">Offline режим</div>
+    <div id="brandPlate" aria-label="Tiny Motor Club">
+      <span class="plate-emblem">M<span>3</span></span>
+      <span class="plate-lettering"><strong>TINY MOTOR CLUB</strong><small>МАСТЕРСКАЯ / № 01</small></span>
+    </div>
+    <div id="netStatus" class="net-offline">Автономная мастерская</div>
     <div id="driveStats"><div class="speed"><strong id="speedValue">0</strong><span>км/ч</span></div>
       <div class="runStats"><span id="courseStatus">Ворота 1/9 · Старт</span><small>РЕКОРД <b id="recordValue">—</b></small><small id="surfaceStatus">ПОКРЫТИЕ · —</small></div>
     </div>
@@ -29,8 +35,10 @@
       <button id="lightsBtn" title="Фары (L)" aria-label="Переключить фары" aria-pressed="true">◈ <span>ФАРЫ</span></button>
       <button id="recoverBtn" title="Выровнять машину (F)" aria-label="Выровнять машину">⟲ <span>ПОДНЯТЬ</span></button>
       <button id="physicsBtn" title="Диагностика подвески (P)" aria-label="Диагностика физики" aria-pressed="false">≋ <span>ФИЗИКА</span></button>
+      <button id="cameraBtn" title="Поменять ракурс (C)" aria-label="Поменять ракурс">ПОГОНЯ</button>
     </div>
-    <div id="joy" aria-label="joystick">
+    <div id="controlTip">WASD — вести · C — камера · F — поднять · P — физика</div>
+    <div id="joy" role="group" aria-label="Руль и газ">
       <div id="joyBase"></div>
       <div id="joyNub"></div>
     </div>

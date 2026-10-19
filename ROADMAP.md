@@ -34,12 +34,17 @@
 - [ ] Playwright screenshots, mobile layout and performance profiling.
 
 ## P2 — Visual identity
-- Build a real toy-scale diorama: modeled roads, workbench, rails, ramps, modular props.
-- Distinguishable roughness, materials, proper contact shadows and light falloff.
-- Physicalized scenery collision: never place opaque fake solids without Rapier bodies.
-- Animated suspension, debris, particle pooling, skid decals, tire deformation illusion.
-- Occlusion-aware chase camera, alternate overhead and cinematic replay views.
-- Visual performance levels for iOS and desktop; GPU/memory budgets.
+- [x] Deterministic woodworking-table diorama and curved nine-checkpoint road.
+- [x] Real physical workshop environment: service canopy, timing board, cones, crates, tire stacks, lamps and boundaries.
+- [x] Asphalt and grip-zone decals, lane markings, tactile tabletop grain, coherent color palette.
+- [x] Ambient reflection and responsive directional shadows; tune scene lighting for warm workshop feel.
+- [x] Pooled persistent skid marks; original impact / dust particles and wheel suspension remain.
+- [x] Three active camera presets with obstacle occlusion and speed-adaptive field of view.
+- [x] Custom racing-instrument HUD, icon, touch joystick skin, loading treatment and responsive controls.
+- [x] Mobile-aware antialiasing/pixel ratio and reduced shadow-map resolution.
+- [ ] Review actual browser screenshots for artifacting, readability, z-fighting and shadows.
+- [ ] Profile GPU cost on real iOS hardware, tune cinematic post FX only if justified.
+- [ ] Improve model material roughness and add ambient contact shading after visual QA.
 
 ## P3 — Game modes
 - Skill tests: slalom, stunt park, delivery, parking, rally, domino / physics puzzle.

@@ -1,135 +1,184 @@
-html, body {
-margin: 0;
-padding: 0;
-width: 100%;
-height: 100%;
-overflow: hidden;
-background: #0b0f16;
-touch-action: none;          /* no scroll/zoom */
-overscroll-behavior: none;   /* stop bounce */
--webkit-user-select: none;
-user-select: none;
+/* TINY MOTOR CLUB | enamel racing instrumentation */
+:root {
+  color-scheme: dark;
+  --ink:#202a31;
+  --warm:#ffddae;
+  --amber:#edac63;
+  --paper:#f4e8d3;
+  --border:rgba(241,197,138,.35);
 }
-#wrap {
-position: fixed;
-inset: 0;
-width: 100vw;
-height: 100vh;
-overflow: hidden;
-touch-action: none;
+*{box-sizing:border-box;}
+html,body{
+  margin:0;padding:0;width:100%;height:100%;overflow:hidden;
+  overscroll-behavior:none;touch-action:none;
+  background:#37414b;color:var(--paper);
+  -webkit-user-select:none;user-select:none;
 }
-canvas {
-display: block;
-width: 100%;
-height: 100%;
-touch-action: none;
+#wrap{position:fixed;inset:0;width:100%;height:100%;touch-action:none;}
+#wrap canvas{display:block;width:100%;height:100%;touch-action:none;}
+#hud{
+  position:fixed;inset:0;pointer-events:none;
+  font-family:system-ui,-apple-system,"Segoe UI",Arial,sans-serif;
+  color:var(--paper);isolation:isolate;
 }
-
-/* Minimal UI */
-#hud {
-position: fixed;
-inset: 0;
-pointer-events: none;
-font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-color: rgba(255,255,255,0.9);
+#hud::before{
+  content:"";position:fixed;inset:0;pointer-events:none;z-index:-1;
+  background:linear-gradient(180deg,rgba(21,27,33,.40) 0%,transparent 27%,transparent 67%,rgba(21,27,33,.26) 100%);
 }
-#netStatus {
-position: absolute;
-top: calc(env(safe-area-inset-top, 0px) + 12px);
-left: calc(env(safe-area-inset-left, 0px) + 12px);
-padding: 8px 12px;
-border-radius: 12px;
-background: rgba(8, 12, 18, 0.65);
-border: 1px solid rgba(255,255,255,0.08);
-box-shadow: 0 8px 24px rgba(0,0,0,0.35);
-font-size: 12px;
-letter-spacing: 0.02em;
-pointer-events: none;
-backdrop-filter: blur(10px);
+#brandPlate{
+  position:absolute;top:calc(env(safe-area-inset-top,0px) + 13px);
+  left:calc(env(safe-area-inset-left,0px) + 14px);
+  display:flex;align-items:center;gap:9px;max-width:240px;
+  filter:drop-shadow(0 5px 9px rgba(19,19,18,.36));
 }
-#netStatus.net-online { color: #a5ffb1; }
-#netStatus.net-offline { color: #ff9f9f; }
-/* One joystick = minimum buttons */
-#joy {
-position: absolute;
-bottom: calc(env(safe-area-inset-bottom, 0px) + 22px);
-left: 50%;
-transform: translateX(-50%);
-width: 150px;
-height: 150px;
-pointer-events: auto; /* only this accepts input */
-touch-action: none;
+.plate-emblem{
+  width:43px;height:43px;display:grid;place-items:center;
+  background:#bc6d43;clip-path:polygon(15% 0,85% 0,100% 16%,100% 84%,85% 100%,15% 100%,0 84%,0 16%);
+  border:2px solid #f4d7ad;font-size:19px;font-weight:950;
+  letter-spacing:-.13em;text-shadow:0 1px 2px #5b2f20;
 }
-#joyBase {
-position: absolute;
-inset: 0;
-border-radius: 999px;
-background: rgba(255,255,255,0.06);
-border: 1px solid rgba(255,255,255,0.12);
-backdrop-filter: blur(10px);
+.plate-emblem span{font-size:12px;color:#ffdaa3;padding-left:2px;}
+.plate-lettering{display:flex;flex-direction:column;gap:3px;white-space:nowrap;}
+.plate-lettering strong{font-size:13px;font-weight:900;letter-spacing:.065em;}
+.plate-lettering small{font-size:8px;font-weight:800;letter-spacing:.15em;color:#edc38c;}
+#netStatus{
+  position:absolute;top:calc(env(safe-area-inset-top,0px) + 64px);
+  left:calc(env(safe-area-inset-left,0px) + 15px);
+  padding:4px 0;font-size:10px;letter-spacing:.055em;font-weight:650;
+  color:#dacbbb;text-shadow:0 1px 4px #17232b;
+  max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
 }
-#joyNub {
-position: absolute;
-left: 50%;
-top: 50%;
-width: 62px;
-height: 62px;
-transform: translate(-50%, -50%);
-border-radius: 999px;
-background: rgba(255,255,255,0.14);
-border: 1px solid rgba(255,255,255,0.18);
-box-shadow: 0 10px 22px rgba(0,0,0,0.35);
+#netStatus.net-online{color:#a8dbb1;}
+#netStatus.net-offline{color:#dacbbb;}
+#driveStats{
+  position:absolute;top:calc(env(safe-area-inset-top,0px) + 96px);
+  left:calc(env(safe-area-inset-left,0px) + 14px);
+  min-width:214px;max-width:calc(100vw - 28px);
+  padding:10px 13px 12px;
+  display:flex;align-items:center;gap:15px;
+  background:linear-gradient(145deg,rgba(38,47,53,.94),rgba(28,36,42,.93));
+  border:1px solid var(--border);border-top:3px solid #c7804d;
+  box-shadow:0 11px 35px #1018206b,inset 0 1px #ffffff22;
+  border-radius:4px 4px 13px 13px;
 }
-
-@media (orientation: landscape) {
-#joy {
-left: 24%;
+.speed{display:flex;flex-direction:column;align-items:flex-start;min-width:67px;}
+.speed strong{
+  color:var(--warm);font:800 38px/.98 ui-monospace,Menlo,Consolas,monospace;
+  font-variant-numeric:tabular-nums;letter-spacing:-.08em;
 }
+.speed span{color:#edbe85;font-size:9px;font-weight:800;letter-spacing:.14em;margin-top:6px;}
+.runStats{display:flex;flex-direction:column;gap:5px;white-space:nowrap;min-width:0;}
+#courseStatus{font-size:12px;font-weight:800;letter-spacing:.008em;}
+.runStats small{font-size:9px;letter-spacing:.065em;color:#c9c5bb;}
+.runStats b{font-weight:850;color:#f0c088;}
+#surfaceStatus{color:#f2bd78;font-weight:850;}
+#driveActions{
+  position:absolute;right:calc(env(safe-area-inset-right,0px) + 14px);
+  top:calc(env(safe-area-inset-top,0px) + 14px);
+  display:flex;gap:6px;pointer-events:auto;
 }
-
-#loadOverlay { position:fixed;z-index:12;inset:0;display:flex;flex-direction:column;
- justify-content:center;align-items:center;text-align:center;background:#121b23;color:#f0e6d6;
- font:14px system-ui,sans-serif;gap:16px; }
-#loadOverlay[hidden], #retryLoad[hidden] {display:none;}
-#loadOverlay strong {font-size:clamp(24px,8vw,52px);letter-spacing:-.04em;}
-#loadOverlay button {padding:12px 19px;border:0;border-radius:10px;background:#eeb878;color:#182129;font-weight:800;}
-#driveActions {position:absolute;top:calc(env(safe-area-inset-top,0px) + 12px);
- right:calc(env(safe-area-inset-right,0px) + 12px);display:flex;gap:7px;pointer-events:auto;}
-#driveActions button {width:58px;height:53px;display:flex;flex-direction:column;
- align-items:center;justify-content:center;font-size:20px;border:1px solid #d7a86b55;
- border-radius:12px;background:#121b23ce;color:#eeb878;touch-action:manipulation;cursor:pointer;}
-#driveActions button span {font:700 10px system-ui;letter-spacing:.05em;}
-#driveActions button:active {transform:scale(.94);}
-#driveActions button[aria-pressed="false"] {color:#94a0a9;}
-
-#driveStats {position:absolute;top:calc(env(safe-area-inset-top,0px) + 62px);
- left:calc(env(safe-area-inset-left,0px) + 12px);
- display:flex;align-items:center;gap:13px;padding:11px 15px;
- background:rgba(17,26,34,.83);border:1px solid rgba(238,184,120,.22);
- border-radius:12px;backdrop-filter:blur(12px);max-width:calc(100vw - 50px);}
-.speed {display:flex;flex-direction:column;min-width:65px;}
-.speed strong {font-size:32px;line-height:1;font-weight:850;letter-spacing:-.06em;
- color:#ffd19a;font-variant-numeric:tabular-nums;}
-.speed span {font-size:10px;letter-spacing:.13em;opacity:.72;}
-.runStats {display:flex;flex-direction:column;gap:5px;font-size:13px;white-space:nowrap;}
-.runStats small {font-size:10px;letter-spacing:.07em;opacity:.78;}
-.runStats b {color:#ffd19a;}
-@media(max-width:540px) {
- #driveStats {top:calc(env(safe-area-inset-top,0px) + 64px);padding:10px;gap:8px;}
- .speed strong {font-size:27px;}
- .runStats {font-size:11px;}
+#driveActions button{
+  appearance:none;min-width:58px;height:53px;padding:5px 7px;
+  display:flex;flex-direction:column;justify-content:center;align-items:center;gap:2px;
+  border:1px solid rgba(240,191,127,.4);border-bottom-width:3px;
+  border-radius:6px 6px 10px 10px;
+  background:linear-gradient(155deg,#455058ed,#222d34f2);
+  color:#f3c489;box-shadow:0 8px 20px #10171e77,inset 0 1px #ffffff24;
+  font-size:20px;font-weight:800;font-family:inherit;
+  cursor:pointer;touch-action:manipulation;
+  transition:transform .12s ease,background .12s ease,box-shadow .12s ease;
 }
-
-#surfaceStatus {font-weight:700;letter-spacing:.04em;color:#ffbd77;opacity:.95;}
-#physicsDebug {position:absolute;left:calc(env(safe-area-inset-left,0px) + 12px);
- bottom:calc(env(safe-area-inset-bottom,0px) + 16px);padding:10px 13px;
- max-width:min(380px,calc(100vw - 30px));background:rgba(15,22,28,.92);
- border:1px solid rgba(255,190,112,.35);border-radius:10px;
- font:12px/1.5 ui-monospace,monospace;pointer-events:none;}
-#physicsDebug[hidden] {display:none;}
-@media(max-width:540px){
- #driveActions {gap:4px;}
- #driveActions button {width:46px;height:49px;font-size:18px;}
- #driveActions button span {font-size:8px;}
- #physicsDebug {bottom:calc(env(safe-area-inset-bottom,0px) + 8px);font-size:10px;}
+#driveActions button span{font-size:9px;font-weight:800;letter-spacing:.07em;color:#f7e7d2;}
+#driveActions button:hover{background:linear-gradient(155deg,#56626a,#34414a);}
+#driveActions button:active{transform:translateY(2px);border-bottom-width:1px;box-shadow:inset 0 2px 10px #10171e70;}
+#driveActions button:focus-visible{outline:2px solid #ffce91;outline-offset:3px;}
+#driveActions button[aria-pressed="false"]{color:#9faeb2;}
+#cameraBtn{font-size:9px!important;letter-spacing:.07em;min-width:69px!important;}
+#controlTip{
+  position:absolute;right:calc(env(safe-area-inset-right,0px) + 17px);
+  bottom:calc(env(safe-area-inset-bottom,0px) + 20px);
+  font-size:10px;font-weight:650;letter-spacing:.09em;opacity:.72;
+  text-shadow:0 2px 9px #101820;
 }
+#joy{
+  position:absolute;bottom:calc(env(safe-area-inset-bottom,0px) + 21px);
+  left:50%;transform:translateX(-50%);width:152px;height:152px;
+  pointer-events:auto;touch-action:none;filter:drop-shadow(0 8px 18px #161d23a3);
+}
+#joyBase{
+  position:absolute;inset:0;border-radius:50%;
+  background:
+    radial-gradient(circle at 40% 32%,rgba(207,168,122,.22),transparent 51%),
+    repeating-conic-gradient(from 0deg,rgba(231,182,119,.15) 0deg 2deg,transparent 2deg 31deg),
+    linear-gradient(145deg,#3d4851e6,#161f29eb);
+  border:3px solid rgba(218,171,111,.74);
+  box-shadow:inset 0 0 0 7px #263039,inset 0 0 0 9px #dbb0743b;
+}
+#joyBase::after{
+  content:"";position:absolute;inset:28px;border-radius:50%;
+  border:1px dashed rgba(255,224,170,.18);
+}
+#joyNub{
+  position:absolute;left:50%;top:50%;
+  width:61px;height:61px;transform:translate(-50%,-50%);
+  border-radius:50%;
+  background:radial-gradient(circle at 35% 25%,#df9f60,#8f5337 74%,#6e392e);
+  border:3px solid #e5bb83;
+  box-shadow:0 6px 18px #0009,inset 0 3px 4px #ffffff4b;
+}
+#joyNub::before{
+  content:"";position:absolute;inset:18px;border-radius:50%;
+  background:#352d2c;border:2px solid rgba(252,208,147,.35);
+}
+#physicsDebug{
+  position:absolute;left:calc(env(safe-area-inset-left,0px) + 14px);
+  bottom:calc(env(safe-area-inset-bottom,0px) + 17px);
+  max-width:min(440px,calc(100vw - 30px));padding:12px 15px;
+  background:#1d272fef;border:1px solid var(--border);border-left:4px solid #c97f4f;
+  border-radius:7px;box-shadow:0 8px 22px #161b21;
+  font:11px/1.5 ui-monospace,Menlo,Consolas,monospace;
+}
+#physicsDebug[hidden]{display:none;}
+#loadOverlay{
+  position:fixed;inset:0;z-index:20;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:13px;padding:24px;text-align:center;
+  background:
+    repeating-linear-gradient(0deg,transparent 0px,transparent 33px,#f0bf8233 34px),
+    radial-gradient(ellipse at 50% 40%,#495158,#222a31 70%);
+  color:#ffebcf;font-family:system-ui,sans-serif;
+}
+#loadOverlay[hidden],#retryLoad[hidden]{display:none;}
+#loadOverlay strong{font-size:clamp(28px,7.5vw,58px);font-weight:950;letter-spacing:-.055em;}
+#loadOverlay p{font-size:13px;letter-spacing:.03em;opacity:.8;}
+#loadOverlay button{background:#e0a56b;color:#24313a;padding:11px 20px;border:0;border-radius:5px;cursor:pointer;font-weight:850;}
+@media (orientation:landscape) and (pointer:coarse){#joy{left:24%;}}
+@media (max-width:670px){
+  #brandPlate{max-width:140px;gap:6px;}
+  .plate-emblem{width:34px;height:35px;font-size:15px;}
+  .plate-lettering strong{font-size:9px;letter-spacing:.02em;}
+  .plate-lettering small{font-size:7px;letter-spacing:.06em;}
+  #driveActions{
+    display:grid;grid-template-columns:repeat(3,44px);
+    gap:4px;max-width:140px;
+  }
+  #driveActions button{min-width:44px;height:43px;font-size:18px;padding:4px 2px;}
+  #driveActions button span{font-size:7px;}
+  #cameraBtn{min-width:44px!important;font-size:7px!important;letter-spacing:0;}
+  #driveStats{top:calc(env(safe-area-inset-top,0px) + 113px);
+    padding:8px 11px;gap:11px;min-width:195px;}
+  .speed strong{font-size:29px;}
+  #courseStatus{font-size:11px;}
+  .runStats small{font-size:9px;}
+  #controlTip{display:none;}
+  #joy{width:142px;height:142px;}
+  #joyNub{width:57px;height:57px;}
+  #physicsDebug{bottom:calc(env(safe-area-inset-bottom,0px) + 8px);font-size:10px;max-width:180px;}
+}
+@media(max-height:460px){
+  #joy{width:116px;height:116px;bottom:calc(env(safe-area-inset-bottom,0px) + 10px);}
+  #joyNub{width:48px;height:48px;}
+  #driveStats{top:calc(env(safe-area-inset-top,0px) + 70px);}
+  #netStatus{display:none;}
+}
+@media(prefers-reduced-motion:reduce){#driveActions button{transition:none;}}
