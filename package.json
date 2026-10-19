@@ -9,5 +9,9 @@
   },
   "dependencies": {
     "ws": "^8.17.1"
+  },
+  "devDependencies": {
+    "three": "0.160.0",
+    "@dimforge/rapier3d-compat": "0.12.0"
   }
 }
