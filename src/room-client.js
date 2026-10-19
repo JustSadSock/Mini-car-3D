@@ -102,7 +102,8 @@ export function createRoomConnection({
       }else if(msg.type==="left"){
         room=null;clear();
         token=null;
-        onRoom(null);setStatus("online");
+        onRoom(null);
+        disconnect();
       }else if(msg.type==="error"){
         emit(msg);
       }else{
@@ -142,8 +143,12 @@ export function createRoomConnection({
     go({type:"join-room",code:cleaned},name);
   }
   function leave(){
-    if(socket&&socket.readyState===1)send({type:"leave-room"});
-    disconnect();
+    desired=false;
+    if(reconnectTimer){clearTimeout(reconnectTimer);reconnectTimer=null;}
+    if(socket?.readyState===1 && room){
+      send({type:"leave-room"});
+      setStatus("leaving");
+    }else disconnect();
   }
   function startRace(){return send({type:"start-race"});}
   function sendState(state){
