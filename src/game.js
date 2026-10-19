@@ -3,6 +3,7 @@ import { createDrivingChallenge } from "./challenge.js";
 import { createModeEngine,MODE_ORDER,MODE_CONFIG } from "./modes.js";
 import { createActivityVisuals } from "./activity-visuals.js";
 import { createRoomConnection } from "./room-client.js";
+import { createOnlineWorldView } from "./online-visuals.js";
 import { createDiorama } from "./diorama.js";
 import { createRoadFeedback } from "./road-feedback.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
@@ -1011,6 +1012,15 @@ async function setupPlayerCar() {
 
 // --- Multiplayer (online/offline aware) ---
 const remotePlayers = new Map();
+const onlineView=createOnlineWorldView(THREE,RAPIER,scene,{
+  getBody:()=>playerPhysics.body,
+  getCar:()=>car,
+  onPeer:state=>{
+    if(!remotePlayers.has(state.id))
+      spawnRemotePlayer(state.id,state).catch(console.warn);
+    else applyRemoteState(state.id,state);
+  }
+});
 
 const PLAYER_COLORS = [
   "#ff6b35", // orange
@@ -1089,7 +1099,7 @@ async function spawnRemotePlayer(id, snapshot) {
     ? { position: new THREE.Vector3(initialState.p[0] || 0, initialState.p[1] || 0, initialState.p[2] || 0), yaw: initialState.y || 0 }
     : getSafeSpawnTransform(id);
   try {
-    const ghost = await makeCar(false, true, spawnTransform);
+    const ghost = await makeCar(false, !currentRoom?.authoritative, spawnTransform);
     if (remotePlayers.get(id) !== placeholder) {
       disposeRemoteCar(ghost);
       return;
@@ -1128,6 +1138,8 @@ function applyRemoteState(id, state) {
     speed: state.s || 0,
     steer: state.st || 0,
     brake: Boolean(state.b),
+    quaternion:state.q?.length===4?
+      new THREE.Quaternion(...state.q):null,
     received: performance.now()
   };
   player.target = target;
@@ -1145,7 +1157,9 @@ function updateRemotePlayers(dt) {
     const currentYawVal = player.mesh.rotation.y;
     const deltaYaw = ((player.target.yaw - currentYawVal + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
     const lerpYaw = currentYawVal + deltaYaw * follow;
-    const lerpQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), lerpYaw);
+    const lerpQuat = player.target.quaternion?
+      player.mesh.quaternion.clone().slerp(player.target.quaternion,follow):
+      new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),lerpYaw);
 
     if (rb?.setNextKinematicTranslation) {
       rb.setNextKinematicTranslation({ x: lerpPos.x, y: lerpPos.y, z: lerpPos.z });
@@ -1198,6 +1212,7 @@ function displayLobbyStatus(text){
 }
 function updateRoom(room){
   currentRoom=room;
+  onlineView.enabled(Boolean(room?.authoritative));
   const connected=Boolean(room);
   document.getElementById("lobbyConnected").hidden=!connected;
   document.getElementById("lobbyDisconnected").hidden=connected;
@@ -1267,7 +1282,9 @@ function updateConvoy(data){
     "ДОЕХАЛИ "+count+"/"+total+" · ДОЖДИТЕСЬ ВСЕХ";
 }
 function handleNetworkEvent(message){
-  if(message.type==="peer-state"){
+  if(message.type==="physics"){
+    onlineView.snapshot(message,NETWORK.id);
+  }else if(message.type==="peer-state"){
     if(message.id===NETWORK.id)return;
     if(!remotePlayers.has(message.id))
       spawnRemotePlayer(message.id,message.state)
