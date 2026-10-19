@@ -209,7 +209,10 @@ function createRoomManager({now=Date.now,codeFactory=null}={}){
       try{data=JSON.parse(raw.toString());}catch(_){return;}
       const current=resolve();
       if(!current||!data||typeof data!=='object'||Array.isArray(data))return;
-      if(data.type==='resume'){resume(current,data.token);return;}
+      if(data.type==='resume'){
+        if(!resume(current,data.token))send(current.ws,{type:'resume-failed'});
+        return;
+      }
       if(data.type==='name') {
         current.name=sanitizeName(data.name);
         const room=findRoom(current);if(room)publish(room);
