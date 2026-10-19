@@ -1342,6 +1342,14 @@ const roomConnection=createRoomConnection({
 });
 function sendStateSnapshot(){
   if(!car||NETWORK.mode!=="online")return;
+  if(onlineView.active){
+    const axes=controlsPaused?{x:0,y:0}:
+      (joyActive&&isCoarsePointer?{x:joyX,y:joyY}:keyboardAxes());
+    inputX=approach(inputX,axes.x,renderFrameDt*6.5);
+    inputY=approach(inputY,axes.y,renderFrameDt*6.5);
+    roomConnection.sendInput(inputX,inputY);
+    return;
+  }
   const rb=playerPhysics.body;
   const pos=rb?rb.translation():car.position;
   const rot=rb?rb.rotation():car.quaternion;
@@ -1576,6 +1584,10 @@ function nextCamera() {
 }
 
 function moveCarTo(spawn) {
+  if(onlineView.active){
+    roomConnection.send({type:"recover"});
+    return;
+  }
   const rb=playerPhysics.body;
   if(!car||!rb)return;
   // Start at the same safe contact height as the proven initial physics spawn.
@@ -1683,6 +1695,11 @@ document.getElementById("resultModes").addEventListener("click",()=>{
 });
 
 function recoverCar() {
+  if(onlineView.active){
+    roomConnection.send({type:"recover"});
+    modeMessage("СЕРВЕР ВЫРАВНИВАЕТ АВТОМОБИЛЬ");
+    return;
+  }
   const rb=playerPhysics.body;
   if(!car||!rb)return;
   const p=rb.translation();
@@ -1875,6 +1892,10 @@ function spawnSkid(origin, direction, intensity, surface="asphalt") {
 }
 
 function applyPlayerForces(dt) {
+  if(onlineView.active){
+    onlineView.step();
+    return;
+  }
   const rb = playerPhysics.body;
   const controller = playerPhysics.controller;
   if (!car || !rb || !controller) return;
@@ -2072,7 +2093,7 @@ function stepPhysics(dt) {
   world.step(eventQueue);
   processCollisions();
   const rb=playerPhysics.body;
-  if(rb&&!controlsPaused){
+  if(rb&&!controlsPaused&&!onlineView.active){
     const p=rb.translation(),v=rb.linvel(),r=rb.rotation();
     const facing=new THREE.Vector3(0,0,1).applyQuaternion(
       new THREE.Quaternion(r.x,r.y,r.z,r.w));
@@ -2130,7 +2151,7 @@ function tick(now) {
   updateRemotePlayers(blendDt);
   diorama?.update(blendDt);
   roadFeedback.update(blendDt, car, playerPhysics.telemetry);
-  if(!controlsPaused&&modeEngine.getState().id==="slalom") {
+  if(!controlsPaused&&!onlineView.active&&modeEngine.getState().id==="slalom") {
     challenge.update(blendDt,car?.position,
       Math.abs(car?.userData.lastSpeed||0));
   }
