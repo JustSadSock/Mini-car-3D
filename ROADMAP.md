@@ -65,7 +65,12 @@
 - [x] Server-coordinated co-op convoy: four sequential checkpoints reached by every connected participant.
 - [x] Multiplayer lobby UI for desktop/mobile; explicit external WebSocket endpoint and origin allowlisting.
 - [x] Server-side tests: isolation, room capacity, leader hand-off, resumption, convoy gating, invalid movement.
-- [ ] Authoritative, deterministic shared car-car physics and damage reconciliation. Current remote vehicles are kinematic proxies; their physical responses are not server-authoritative.
+- [x] Authoritative 60-Hz Rapier simulation per room for full dynamic car-car and car-cargo interactions. Three shared boxes and ramp/floor colliders; accepts only signed-bounded, monotonic driver input.
+- [x] Snapshot broadcast at 20 Hz includes full 3D quaternion, velocity, props, simulation tick and applied input sequence; browser transforms are non-authoritative.
+- [x] Online car switches to kinematic, smoothed server state and reverts to solo dynamics on leave; shared cargo rendered as physical-world meshes.
+- [x] Server validates checkpoint progression directly against its rigidbody coordinates; browser cannot send spoofed positions to advance race.
+- [ ] Advanced latency compensation and rollback/input replay; current correction is smoothing, not full prediction/reconciliation.
+- [ ] Mirror all workshop obstacle colliders and implement cooperative cargo delivery beyond the three shared crates.
 - [ ] Replace standalone Node WebSocket host with PocketWorks/Pocketnet room transport after locating the production shell and deployment wiring.
 - [ ] Verify launch, navigation, manifest and version synchronization in the actual PocketWorks shell; standalone repository is not proof of deployment.
 - [ ] End-to-end browser confirmation: two clients, reconnect, room join/leave, share link, race finish, real mobile device.

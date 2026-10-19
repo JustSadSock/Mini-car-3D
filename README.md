@@ -35,7 +35,9 @@ Comma-separated origins are supported. Same-origin and supported Netlify origins
 
 ### Physics scope
 
-The local car uses four-wheel Rapier suspension and grip. Remote cars use room-scoped streamed state and kinematic Rapier proxies. Collisions with these proxies may have local responses, but there is **not yet an authoritative server-side rigid-body simulation**. The co-op convoy checkpoint progression, room membership and timing are server-managed.
+**Network rooms use server-authoritative Rapier dynamics.** The server keeps one physical world per room, advances it at 60 Hz, owns the car rigid bodies and three shared movable crates, and sends authoritative position, rotation and velocity snapshots at 20 Hz. Clients send only sequenced gas/steering inputs; browser-supplied car positions are ignored by authoritative rooms. This makes car-to-car and car-to-crate interactions consistent for all participants. The local model is a kinematic visual proxy with smoothed corrections while online; leaving the room restores the single-player four-wheel Rapier simulation.
+
+Collision handling is currently authoritative for vehicles, shared cargo, tabletop boundaries and the two modeled ramps. Additional workshop scenery remains single-player/visual and is not yet mirrored into the authoritative room. Automatic rewind/replay prediction and latency-compensated input reconciliation are future work.
 
 ## Testing
 
