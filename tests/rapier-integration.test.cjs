@@ -131,3 +131,16 @@ test("real Rapier: collider parent is an actual rigid body usable for collision 
   assert.ok(collisions>=1,"falling rigidbody should generate contact event");
   world.free();
 });
+
+test("real Rapier: right steering while moving bends trajectory to +X",async()=>{
+  await RAPIER.init();
+  const sim=setup();
+  simulate(sim,.7,0,0);
+  simulate(sim,.7,1,0);
+  const before=sim.body.translation().x;
+  simulate(sim,.9,1,.7);
+  const after=sim.body.translation().x;
+  assert.ok(after>before+.15,
+    "right steering must move toward +X, before="+before+" after="+after);
+  sim.world.free();
+});
