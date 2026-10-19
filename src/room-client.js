@@ -14,18 +14,17 @@ export function createRoomConnection({
   let room=null,status="offline",pending=null,desired=false;
   let reconnectTimer=null,retry=0,lastSend=0,connectionEpoch=0,resuming=false;
   let nickname="Водитель";
+  let serverOverride=new URLSearchParams(location.search||"").get("server")||"";
   const getState=()=>({id,room,status,desired,nickname});
   const notify=()=>onStatus(getState());
   function emit(message){onEvent(message);}
   function setStatus(s){status=s;notify();}
   function url() {
-    const params=new URLSearchParams(location.search||"");
-    const override=params.get("server");
     // Full URL or hostname. Explicit override required for cross-origin server.
     let origin;
     try {
-      origin=override?new URL(override.includes("://")?override:
-        location.protocol+"//"+override):new URL(location.href);
+      origin=serverOverride?new URL(serverOverride.includes("://")?serverOverride:
+        location.protocol+"//"+serverOverride):new URL(location.href);
     } catch(_){origin=new URL(location.href);}
     const scheme=origin.protocol==="https:"?"wss:":"ws:";
     return scheme+"//"+origin.host+"/ws";
@@ -133,6 +132,21 @@ export function createRoomConnection({
     }
     connect(false);
   }
+  function setServer(value){
+    const raw=String(value||"").trim();
+    if(!raw){serverOverride="";return true;}
+    try{
+      const parsed=new URL(raw.includes("://")?raw:location.protocol+"//"+raw);
+      const local=["localhost","127.0.0.1"].includes(parsed.hostname);
+      if(!["https:","http:"].includes(parsed.protocol) ||
+         (location.protocol==="https:"&&parsed.protocol!=="https:"&&!local) ||
+         parsed.username || parsed.password || !parsed.host)throw Error();
+      serverOverride=parsed.origin;return true;
+    }catch(_){
+      emit({type:"error",message:"Укажите адрес HTTPS-сервера, например https://car.example"});
+      return false;
+    }
+  }
   function create(name){go({type:"create-room"},name);}
   function join(code,name){
     const cleaned=String(code||"").trim().toUpperCase();
@@ -158,5 +172,5 @@ export function createRoomConnection({
     lastSend=t;return send({type:"state",state});
   }
   return {create,join,leave,disconnect,startRace,sendState,
-    getState,send,url};
+    getState,send,url,setServer};
 }
