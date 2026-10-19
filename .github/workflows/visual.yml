@@ -1,0 +1,37 @@
+name: Mini Car 3D visual browser QA
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'src/**'
+      - 'styles.css'
+      - 'index.html'
+      - 'models/**'
+      - 'assets/**'
+      - 'tests/visual/**'
+      - 'playwright.config.cjs'
+      - '.github/workflows/visual.yml'
+
+jobs:
+  chromium-webgl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install test dependencies
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Render WebGL and capture desktop/mobile screenshots
+        run: npm run test:visual
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mini-car-webgl-screenshots
+          path: |
+            test-results/**
+            playwright-report/**
+          retention-days: 10
