@@ -1475,6 +1475,10 @@ document.addEventListener("visibilitychange", () => { if (document.hidden) { rel
 // Keyboard fallback (PC)
 const keys = new Set();
 window.addEventListener("keydown", (e) => {
+  if(e.target?.matches?.("input,textarea,select")){
+    if(e.code==="Escape")closeOnlinePanel();
+    return;
+  }
   if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.code)) e.preventDefault();
   keys.add(e.code);
   if (!e.repeat && e.code === "KeyR") resetCar();
@@ -2148,6 +2152,7 @@ async function startGame() {
   document.getElementById("resultPanel").hidden=true;
   document.getElementById("loadOverlay").hidden = true;
   camera.position.copy(CAMERA.presets[cameraPreset].offset).add(car.position);
+  if(roomFromLink)openOnlinePanel();
   updateDrivingHud(1);
   // No connection until the player chooses a private room.
   requestAnimationFrame(tick);
