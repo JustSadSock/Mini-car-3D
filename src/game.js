@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { createDrivingChallenge } from "./challenge.js";
 import { createModeEngine,MODE_ORDER,MODE_CONFIG } from "./modes.js";
 import { createActivityVisuals } from "./activity-visuals.js";
+import { createRoomConnection } from "./room-client.js";
 import { createDiorama } from "./diorama.js";
 import { createRoadFeedback } from "./road-feedback.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
@@ -20,15 +21,7 @@ const wrap = document.getElementById("wrap");
 const hud = document.getElementById("hud");
 const netStatusEl = document.getElementById("netStatus");
 
-const NETWORK = {
-  defaultHost: "irgri.uk",
-  localHost: "localhost:3000",
-  mode: "offline",
-  socket: null,
-  id: null,
-  reconnectTimer: null,
-  lastSend: 0
-};
+const NETWORK = { mode:"offline", id:null };
 
 function setNetStatus(text, online = false) {
   netStatusEl.textContent = text;
@@ -1181,131 +1174,225 @@ function updateRemotePlayers(dt) {
   }
 }
 
-function resolveServerHost() {
-  const override = new URLSearchParams(location.search).get("server");
-  if (override && /^[a-z0-9.:-]+$/i.test(override)) return override;
-  if (location.hostname === "localhost" || location.hostname === "127.0.0.1") return location.host;
-  return NETWORK.defaultHost;
+// Multiplayer is opt-in and strictly scoped to an explicit private room.
+let currentRoom=null;
+let convoyRace=null;
+let onlinePanelOpen=false;
+const convoyMarkers=new THREE.Group();
+convoyMarkers.name="Server-coordinated shared checkpoint markers";
+scene.add(convoyMarkers);
+const convoyRings=[];
+for(let i=0;i<4;i++){
+  const ring=new THREE.Mesh(new THREE.RingGeometry(3.5,3.75,48),
+    new THREE.MeshBasicMaterial({
+      color:0x9cdbc5,transparent:true,opacity:.75,
+      side:THREE.DoubleSide,depthWrite:false}));
+  ring.rotation.x=-Math.PI/2;
+  ring.position.y=.085;
+  convoyMarkers.add(ring);
+  convoyRings.push(ring);
 }
-
-async function checkServerAvailability(host, timeoutMs = 1800) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  const protocol = host.includes("localhost") || host.includes("127.0.0.1") ? "http" : "https";
-  try {
-    const res = await fetch(`${protocol}://${host}/health`, {
-      signal: controller.signal,
-      cache: "no-store"
-    });
-    return res.ok;
-  } catch (err) {
-    return false;
-  } finally {
-    clearTimeout(timer);
-  }
+convoyMarkers.visible=false;
+function displayLobbyStatus(text){
+  document.getElementById("lobbyStatus").textContent=text;
 }
-
-function cleanSocket() {
-  if (NETWORK.socket) {
-    NETWORK.socket.close();
-    NETWORK.socket = null;
-  }
-}
-
-function scheduleReconnect() {
-  if (NETWORK.reconnectTimer) return;
-  NETWORK.reconnectTimer = setTimeout(() => {
-    NETWORK.reconnectTimer = null;
-    initNetwork();
-  }, 2500);
-}
-
-function sendStateSnapshot() {
-  if (!NETWORK.socket || NETWORK.socket.readyState !== WebSocket.OPEN) return;
-  if (!car) return;
-  const now = performance.now();
-  if (now - NETWORK.lastSend < 50) return; // ~20 Hz
-  NETWORK.lastSend = now;
-  const yaw = car.rotation.y;
-  const speed = car.userData.lastSpeed || 0;
-  const steerVisual = clamp(inputX, -1, 1) * TUNING.axleSteer;
-  const payload = {
-    type: "state",
-    state: {
-      p: [Number(car.position.x.toFixed(3)), Number(car.position.y.toFixed(3)), Number(car.position.z.toFixed(3))],
-      y: Number(yaw.toFixed(4)),
-      s: Number(speed.toFixed(3)),
-      st: Number(steerVisual.toFixed(4)),
-      b: Boolean(car.userData.brakeActive)
-    }
-  };
-  NETWORK.socket.send(JSON.stringify(payload));
-}
-
-function handleMessage(evt) {
-  let data;
-  try {
-    data = JSON.parse(evt.data);
-  } catch (err) {
-    return;
-  }
-
-  if (data.type === "hello") {
-    NETWORK.id = data.id;
-    setNetStatus(`Online: ${resolveServerHost()}`, true);
-    ensureLocalColor();
-    if (Array.isArray(data.players)) {
-      data.players.forEach((p) => {
-        if (!remotePlayers.has(p.id)) spawnRemotePlayer(p.id, p.state).catch((err) => console.warn("Remote spawn failed", err));
-        else applyRemoteState(p.id, p.state);
-      });
-    }
-    sendStateSnapshot();
-  } else if (data.type === "state" && data.id && data.id !== NETWORK.id) {
-    if (!remotePlayers.has(data.id)) spawnRemotePlayer(data.id, data.state).catch((err) => console.warn("Remote spawn failed", err));
-    else applyRemoteState(data.id, data.state);
-  } else if (data.type === "player-left" && data.id) {
-    removeRemotePlayer(data.id);
-  } else if (data.type === "player-joined" && data.id && data.id !== NETWORK.id) {
-    if (!remotePlayers.has(data.id)) spawnRemotePlayer(data.id, buildSafeSpawnState(data.id)).catch((err) => console.warn("Remote spawn failed", err));
-  }
-}
-
-async function initNetwork() {
-  cleanSocket();
-  const host = resolveServerHost();
-  const available = await checkServerAvailability(host);
-  if (!available) {
-    NETWORK.mode = "offline";
-    setNetStatus("Offline режим (сервер недоступен)", false);
-    scheduleReconnect();
-    return;
-  }
-
-  const protocol = host.includes("localhost") || host.includes("127.0.0.1") ? "ws" : "wss";
-  const ws = new WebSocket(`${protocol}://${host}/ws`);
-  ws.addEventListener("open", () => {
-    NETWORK.socket = ws;
-    NETWORK.mode = "online";
-    NETWORK.lastSend = 0;
-    setNetStatus(`Online: ${host}`, true);
-    sendStateSnapshot();
-  });
-  ws.addEventListener("message", handleMessage);
-  ws.addEventListener("close", () => {
-    if (NETWORK.socket !== ws) return;
-    NETWORK.mode = "offline";
-    setNetStatus("Offline режим (нет соединения)", false);
-    NETWORK.socket = null;
-    NETWORK.id = null;
+function updateRoom(room){
+  currentRoom=room;
+  const connected=Boolean(room);
+  document.getElementById("lobbyConnected").hidden=!connected;
+  document.getElementById("lobbyDisconnected").hidden=connected;
+  if(!room){
     clearRemotePlayers();
-    scheduleReconnect();
+    convoyRace=null;
+    convoyMarkers.visible=false;
+    document.getElementById("convoyHud").hidden=true;
+    displayLobbyStatus("Одиночная игра остаётся доступной без подключения.");
+    return;
+  }
+  document.getElementById("roomCode").textContent=room.code;
+  const roster=document.getElementById("roomMembers");
+  roster.replaceChildren();
+  room.members.forEach(member=>{
+    const div=document.createElement("div");
+    div.className="lobby-member"+(member.connected?"":" offline");
+    const title=document.createElement("span");
+    title.textContent=member.name+(member.id===NETWORK.id?" · ВЫ":"");
+    const label=document.createElement("small");
+    label.textContent=(member.id===room.host?"ВЕДУЩИЙ · ":"")+
+      (member.connected?"НА ТРАССЕ":"НЕТ СОЕДИНЕНИЯ");
+    div.append(title,label);roster.appendChild(div);
+    if(member.id===NETWORK.id)return;
+    if(!remotePlayers.has(member.id))
+      spawnRemotePlayer(member.id,member.state||buildSafeSpawnState(member.id))
+        .catch(err=>console.warn("Remote car failed",err));
+    else if(member.state)applyRemoteState(member.id,member.state);
   });
-  ws.addEventListener("error", () => {
-    setNetStatus("Offline режим (ошибка связи)", false);
+  for(const id of [...remotePlayers.keys()]){
+    if(!room.members.some(m=>m.id===id&&m.connected))removeRemotePlayer(id);
+  }
+  const isHost=room.host===NETWORK.id;
+  const start=document.getElementById("startConvoyBtn");
+  start.hidden=!isHost;
+  start.disabled=Boolean(room.race)||room.members.length<2||
+    room.members.some(m=>!m.connected);
+  document.getElementById("lobbyHint").textContent=room.race?
+    "Совместный конвой идёт. Все участники должны достигать контрольных ворот по очереди.":
+    isHost?"Вы ведущий. Запустите испытание, когда все подключились.":
+      "Ожидайте запуска конвоя ведущим комнаты.";
+  displayLobbyStatus(room.members.length+"/4 водителя · приглашение только по коду");
+  if(room.race) updateConvoy({
+    stage:room.race.stage,reached:room.race.reached,targets:room.race.targets,
+    startedAt:room.race.startedAt
   });
 }
-
+function updateConvoy(data){
+  const targets=data.targets||[];
+  if(!targets.length||data.stage>=targets.length)return;
+  convoyRace={...data,targets};
+  convoyMarkers.visible=true;
+  convoyRings.forEach((mesh,i)=>{
+    const pt=targets[i];
+    mesh.visible=!!pt;
+    if(!pt)return;
+    mesh.position.set(pt.x,.088,pt.z);
+    mesh.material.opacity=i===data.stage?.92:.2;
+    mesh.material.color.setHex(i===data.stage?0x9ff2d0:0x667d80);
+  });
+  const roster=currentRoom?.members||[];
+  const total=roster.length||0, count=data.reached?.length||0;
+  document.getElementById("convoyHud").hidden=false;
+  document.getElementById("convoyStage").textContent=
+    "ВОРОТА "+(data.stage+1)+"/"+targets.length;
+  document.getElementById("convoyMembers").textContent=
+    "ДОЕХАЛИ "+count+"/"+total+" · ДОЖДИТЕСЬ ВСЕХ";
+}
+function handleNetworkEvent(message){
+  if(message.type==="peer-state"){
+    if(message.id===NETWORK.id)return;
+    if(!remotePlayers.has(message.id))
+      spawnRemotePlayer(message.id,message.state)
+        .catch(err=>console.warn("Remote state spawn failed",err));
+    else applyRemoteState(message.id,message.state);
+  }else if(message.type==="race-start"){
+    setMode("slalom");
+    moveCarTo({x:0,z:0,yaw:0});
+    document.getElementById("onlinePanel").hidden=true;
+    onlinePanelOpen=false;
+    document.getElementById("onlineBtn").setAttribute("aria-expanded","false");
+    controlsPaused=false;
+    updateConvoy(message);
+    modeMessage("КОНВОЙ · КАЖДЫЙ ПРОХОДИТ ВОРОТА ПО ПОРЯДКУ");
+  }else if(message.type==="race-progress"){
+    updateConvoy({...message,startedAt:convoyRace?.startedAt||Date.now()});
+  }else if(message.type==="race-finish"){
+    const time=Number(message.duration)||0;
+    modeMessage("КОНВОЙ ПРОЙДЕН · "+time.toFixed(1)+" СЕК");
+    document.getElementById("convoyStage").textContent="КОНВОЙ ЗАВЕРШЁН";
+    convoyRace=null;convoyMarkers.visible=false;
+    document.getElementById("convoyTime").textContent=time.toFixed(1)+" с";
+  }else if(message.type==="race-cancel"){
+    convoyRace=null;convoyMarkers.visible=false;
+    document.getElementById("convoyHud").hidden=true;
+    modeMessage(message.reason||"Испытание отменено");
+  }else if(message.type==="peer-left"){
+    removeRemotePlayer(message.id);
+  }else if(message.type==="peer-offline"){
+    removeRemotePlayer(message.id);
+  }else if(message.type==="error"){
+    displayLobbyStatus(message.message||"Ошибка подключения");
+    modeMessage(message.message||"Ошибка сети");
+  }
+}
+const roomConnection=createRoomConnection({
+  onRoom:updateRoom,
+  onEvent:handleNetworkEvent,
+  onStatus:state=>{
+    NETWORK.id=state.id;
+    NETWORK.mode=state.status==="in-room"?"online":"offline";
+    ensureLocalColor();
+    const online=state.status==="in-room";
+    setNetStatus(online?
+      "КОМНАТА "+state.room.code+" · "+state.room.members.length+"/4":
+      state.status==="reconnecting"?"СВЯЗЬ ПРЕРВАНА · ВОССТАНОВЛЕНИЕ":
+      state.status==="connecting"?"ПОДКЛЮЧЕНИЕ К ГАРАЖУ":
+      state.status==="connection-error"?"ОШИБКА СЕТЕВОГО СЕРВЕРА":
+      "ОДИНОЧНАЯ МАСТЕРСКАЯ",online);
+    if(state.status==="reconnecting"||state.status==="connection-error"){
+      displayLobbyStatus("Связь потеряна. Повторное подключение выполняется автоматически.");
+      clearRemotePlayers();
+    }
+  }
+});
+function sendStateSnapshot(){
+  if(!car||NETWORK.mode!=="online")return;
+  const rb=playerPhysics.body;
+  const pos=rb?rb.translation():car.position;
+  const rot=rb?rb.rotation():car.quaternion;
+  const direction=new THREE.Vector3(0,0,1)
+    .applyQuaternion(new THREE.Quaternion(rot.x,rot.y,rot.z,rot.w));
+  const yaw=Math.atan2(direction.x,direction.z);
+  const speed=car.userData.lastSpeed||0;
+  roomConnection.sendState({
+    p:[Number(pos.x.toFixed(3)),Number(pos.y.toFixed(3)),Number(pos.z.toFixed(3))],
+    y:Number(yaw.toFixed(4)),
+    s:Number(speed.toFixed(3)),
+    st:Number((clamp(inputX,-1,1)*TUNING.axleSteer).toFixed(3)),
+    b:Boolean(car.userData.brakeActive)
+  });
+}
+function openOnlinePanel(){
+  document.getElementById("modePanel").hidden=true;
+  document.getElementById("modeBtn").setAttribute("aria-expanded","false");
+  onlinePanelOpen=true;
+  document.getElementById("onlinePanel").hidden=false;
+  document.getElementById("onlineBtn").setAttribute("aria-expanded","true");
+  releaseJoy();keys.clear();inputX=inputY=0;
+  controlsPaused=true;
+}
+function closeOnlinePanel(){
+  onlinePanelOpen=false;
+  document.getElementById("onlinePanel").hidden=true;
+  document.getElementById("onlineBtn").setAttribute("aria-expanded","false");
+  controlsPaused=!document.getElementById("resultPanel").hidden;
+}
+document.getElementById("onlineBtn").addEventListener("click",openOnlinePanel);
+document.getElementById("onlineCloseBtn").addEventListener("click",closeOnlinePanel);
+document.getElementById("createLobbyBtn").addEventListener("click",()=>{
+  displayLobbyStatus("Создаём приватную комнату…");
+  roomConnection.create(document.getElementById("driverName").value);
+});
+document.getElementById("joinLobbyBtn").addEventListener("click",()=>{
+  displayLobbyStatus("Проверяем код приглашения…");
+  roomConnection.join(document.getElementById("joinCodeInput").value,
+    document.getElementById("driverName").value);
+});
+document.getElementById("leaveLobbyBtn").addEventListener("click",()=>{
+  roomConnection.leave();
+  updateRoom(null);
+  closeOnlinePanel();
+});
+document.getElementById("startConvoyBtn").addEventListener("click",()=>{
+  roomConnection.startRace();
+});
+document.getElementById("copyInviteBtn").addEventListener("click",async()=>{
+  const code=currentRoom?.code;if(!code)return;
+  const invite=new URL(location.href);
+  invite.searchParams.set("room",code);
+  try{
+    await navigator.clipboard.writeText(invite.toString());
+    displayLobbyStatus("Ссылка-приглашение скопирована");
+  }catch(_){
+    try{await navigator.clipboard.writeText(code);
+      displayLobbyStatus("Код комнаты скопирован");
+    }catch(_){
+      displayLobbyStatus("Код для приглашения: "+code);
+    }
+  }
+});
+const roomFromLink=new URLSearchParams(location.search).get("room");
+if(roomFromLink && /^[A-HJ-NP-Z2-9]{6}$/i.test(roomFromLink)){
+  document.getElementById("joinCodeInput").value=roomFromLink.toUpperCase();
+}
 // --- Input: single joystick + keyboard fallback ---
 const joy = document.getElementById("joy");
 const nub = document.getElementById("joyNub");
@@ -1396,7 +1483,11 @@ window.addEventListener("keydown", (e) => {
   if (!e.repeat && e.code === "KeyP") toggleDiagnostics();
   if (!e.repeat && e.code === "KeyC") nextCamera();
   if (!e.repeat && e.code === "KeyM") openModePanel();
-  if (!e.repeat && e.code === "Escape") closeModePanel();
+  if (!e.repeat && e.code === "KeyO") openOnlinePanel();
+  if (!e.repeat && e.code === "Escape") {
+    closeModePanel();
+    closeOnlinePanel();
+  }
 });
 window.addEventListener("keyup", (e) => { keys.delete(e.code); });
 
@@ -2023,8 +2114,11 @@ function tick(now) {
   }
   updateDrivingHud(blendDt);
 
-  if (NETWORK.mode === "online") {
-    sendStateSnapshot();
+  if (NETWORK.mode === "online") sendStateSnapshot();
+  if(convoyRace?.startedAt){
+    const elapsed=Math.max(0,Math.round((Date.now()-convoyRace.startedAt)/1000));
+    document.getElementById("convoyTime").textContent=
+      Math.floor(elapsed/60)+":"+String(elapsed%60).padStart(2,"0");
   }
 
   updateParticles(blendDt);
@@ -2046,7 +2140,7 @@ async function startGame() {
   document.getElementById("loadOverlay").hidden = true;
   camera.position.copy(CAMERA.presets[cameraPreset].offset).add(car.position);
   updateDrivingHud(1);
-  initNetwork();
+  // No connection until the player chooses a private room.
   requestAnimationFrame(tick);
 }
 startGame().catch((error) => {
