@@ -1757,6 +1757,13 @@ function processCollisions() {
 
 function updateCamera(dt) {
   if (!car) return;
+  // Keep the shadow volume centered on the miniature vehicle across the entire
+  // 220-unit workshop, rather than only around the original spawn point.
+  const lightX=Math.round(car.position.x*2)/2;
+  const lightZ=Math.round(car.position.z*2)/2;
+  sun.position.set(lightX+19,38,lightZ+17);
+  sun.target.position.set(lightX,0,lightZ);
+  sun.target.updateMatrixWorld();
   const preset=CAMERA.presets[cameraPreset];
   const heading=new THREE.Vector3(0,0,1).applyQuaternion(car.quaternion);
   const yaw=Math.atan2(heading.x,heading.z);
