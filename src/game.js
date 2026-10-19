@@ -1382,18 +1382,11 @@ let accumulator = 0;
 let last = performance.now();
 let cameraShake = 0;
 const previousTransforms = new Map();
-let lastPhysicsDt = FIXED_DT;
 
 const DRIVE = {
-  engineImpulse: 5.6,  // raise for snappier acceleration (arcade)
-  steerTorque: 0.64,   // raise for faster yaw response
-  maxSpeed: 10.2,      // forward top speed (swap with reverse for request)
-  maxReverse: 24.0,    // reverse top speed (faster per request)
-  speedClamp: 0.3,     // higher = stronger speed cap impulse
-  sideGrip: 1.7,       // higher = less drift
   ccd: true,
-  skidSideThreshold: 3.4,
-  skidMinSpeed: 4.6,
+  skidSideThreshold: 1.7,
+  skidMinSpeed: 3.8
 };
 
 const CAMERA = {
@@ -1742,7 +1735,6 @@ function updateCamera(dt) {
 }
 
 function stepPhysics(dt) {
-  lastPhysicsDt = dt;
   collisionVelocities.clear();
   dynamicBodies.forEach(rb => {
     const v=rb.linvel();
