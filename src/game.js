@@ -1606,8 +1606,9 @@ function processCollisions() {
     if (!started) return;
     const c1 = world.getCollider(h1);
     const c2 = world.getCollider(h2);
-    const rb1 = c1?.parent() != null ? world.getRigidBody(c1.parent()) : null;
-    const rb2 = c2?.parent() != null ? world.getRigidBody(c2.parent()) : null;
+    // Collider.parent() already returns the RigidBody, not a numeric handle.
+    const rb1 = c1?.parent() || null;
+    const rb2 = c2?.parent() || null;
     if (!rb1 || !rb2) return;
     // Other players and loose props must not trigger local screen shake.
     if (rb1.handle !== playerPhysics.body?.handle && rb2.handle !== playerPhysics.body?.handle) return;
