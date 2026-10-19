@@ -1555,6 +1555,7 @@ function moveCarTo(spawn) {
   rb.setAngvel({x:0,y:0,z:0},true);
   car.position.set(pos.x,pos.y,pos.z);
   car.quaternion.copy(q);
+  if(currentRoom&&!convoyRace)roomConnection.send({type:"reset-position"});
   previousTransforms.delete(rb.handle);
   inputX=inputY=0;releaseJoy();keys.clear();
   playerPhysics.controller?.reset();
@@ -1575,6 +1576,10 @@ function resetCar() {
 }
 function setMode(next) {
   if(!MODE_CONFIG[next])return;
+  if(convoyRace&&next!=="slalom"){
+    modeMessage("СНАЧАЛА ЗАКОНЧИТЕ СОВМЕСТНЫЙ КОНВОЙ");
+    return;
+  }
   const spawn=modeEngine.select(next);
   challenge.reset();
   challenge.setActive(next==="slalom");
@@ -1589,6 +1594,10 @@ function setMode(next) {
   updateDrivingHud(1);
 }
 function openModePanel() {
+  if(convoyRace){
+    modeMessage("СОВМЕСТНЫЙ КОНВОЙ УЖЕ ИДЁТ");
+    return;
+  }
   controlsPaused=true;
   inputX=inputY=0;releaseJoy();keys.clear();
   const panel=document.getElementById("modePanel");
