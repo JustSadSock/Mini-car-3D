@@ -26,9 +26,12 @@
 - [x] Collision effects use pre-solver approach speed and per-impact cooldown.
 - [x] In-place rollover recovery (F or button); out-of-bounds recovery; reset R.
 - [x] Physics telemetry (P or touch) for contacts, slip, grip, spring travel.
-- [ ] Manual WebGL/GLB drive validation on desktop and iOS, including actual wheel placement.
-- [ ] Playwright screenshots, collision and 30/60/120 FPS tests.
-- [ ] Ramps and landing course for controlled suspension tuning.
+- [x] GLB structure verified: +Z front, independent front wheel meshes and paired rear wheel mesh.
+- [x] Real Rapier integration tests for suspension, steering, air controls and ice traction.
+- [x] Fixed-step consistency at 30/60/120 render FPS, real collider event API checks.
+- [x] Two sloped ramps with matching visual meshes and physical Rapier colliders.
+- [ ] Interactive WebGL/browser driving and landing validation on desktop and iOS.
+- [ ] Playwright screenshots, mobile layout and performance profiling.
 
 ## P2 — Visual identity
 - Build a real toy-scale diorama: modeled roads, workbench, rails, ramps, modular props.
