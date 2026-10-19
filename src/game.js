@@ -7,9 +7,7 @@ import RAPIER from "https://cdn.jsdelivr.net/npm/@dimforge/rapier3d-compat@0.12.
 document.addEventListener("gesturestart", (e) => e.preventDefault(), { passive: false });
 document.addEventListener("gesturechange", (e) => e.preventDefault(), { passive: false });
 document.addEventListener("gestureend", (e) => e.preventDefault(), { passive: false });
-["touchstart","touchmove","touchend"].forEach(evt => {
-  document.addEventListener(evt, (e) => e.preventDefault(), { passive: false });
-});
+// Global touch cancellation removed: it suppressed genuine mobile button taps.
 
 const wrap = document.getElementById("wrap");
 const hud = document.getElementById("hud");
@@ -542,7 +540,7 @@ const carModelPromise = loadCarModel();
 let car = null;
 
 function loadCarModel() {
-  return gltfLoader.loadAsync("models/normalcar1.glb").then((gltf) => gltf.scene);
+  return gltfLoader.loadAsync("models/NormalCar1.glb").then((gltf) => gltf.scene);
 }
 
 let loggedCarStructure = false;
@@ -784,6 +782,7 @@ async function makeCar(isPlayer = true, withPhysics = true, spawnOverride = null
   const { headlights, tailLights } = collectLightMaterials(car);
   const bodyMaterials = collectBodyMaterials(car);
   const headlightRig = attachHeadlights(car);
+  if (!isPlayer) headlightRig.left.castShadow = false;
   const rearLights = attachRearLights(car);
 
   const headlightIntensities = headlights.map((m) =>
@@ -857,17 +856,7 @@ async function makeCar(isPlayer = true, withPhysics = true, spawnOverride = null
       });
     }
 
-    if (car.userData.rearLights) {
-      updateRearLights(
-        car.userData.rearLights,
-        0.016,
-        car.userData.lastSpeed || 0,
-        car.userData.lastTargetSpeed || 0,
-        0,
-        lightsOn
-      );
-    }
-
+    // Rear lights update once per frame (not twice via applyLights).
   };
 
   car.userData.applyLights(false);
@@ -974,40 +963,70 @@ function ensureLocalColor() {
   car.userData.assignedColorId = colorId;
 }
 
+function disposeRemoteCar(mesh) {
+  if (!mesh) return;
+  const rb = mesh.userData.physics?.body;
+  if (rb) {
+    dynamicBodies.delete(rb);
+    rigidMeshes.delete(rb.handle);
+    previousTransforms.delete(rb.handle);
+    const collider = mesh.userData.physics?.collider;
+    if (collider) colliderMetadata.delete(collider.handle);
+    world.removeRigidBody(rb);
+  }
+  scene.remove(mesh);
+  // GLTF clone shares geometry and textures with other cars; do not dispose either.
+  mesh.traverse((child) => {
+    const materials = child.material ? (Array.isArray(child.material) ? child.material : [child.material]) : [];
+    materials.forEach((material) => material.dispose?.());
+  });
+}
+
 async function spawnRemotePlayer(id, snapshot) {
-  if (remotePlayers.has(id)) return;
-  const placeholder = { mesh: null, target: null, loading: true };
-  remotePlayers.set(id, placeholder);
+  if (remotePlayers.has(id)) {
+    if (snapshot) applyRemoteState(id, snapshot);
+    return;
+  }
   const initialState = snapshot || buildSafeSpawnState(id);
+  const placeholder = { mesh: null, target: null, loading: true, latestState: initialState };
+  remotePlayers.set(id, placeholder);
   const spawnTransform = Array.isArray(initialState.p)
     ? { position: new THREE.Vector3(initialState.p[0] || 0, initialState.p[1] || 0, initialState.p[2] || 0), yaw: initialState.y || 0 }
     : getSafeSpawnTransform(id);
-  const ghost = await makeCar(false, true, spawnTransform);
-  colorizeCar(ghost, id);
-  ghost.userData.isRemote = true;
-  ghost.userData.applyLights?.(false);
-  scene.add(ghost);
-  placeholder.mesh = ghost;
-  placeholder.loading = false;
-  applyRemoteState(id, initialState);
+  try {
+    const ghost = await makeCar(false, true, spawnTransform);
+    if (remotePlayers.get(id) !== placeholder) {
+      disposeRemoteCar(ghost);
+      return;
+    }
+    colorizeCar(ghost, id);
+    ghost.userData.isRemote = true;
+    ghost.userData.applyLights?.(false);
+    scene.add(ghost);
+    placeholder.mesh = ghost;
+    placeholder.loading = false;
+    applyRemoteState(id, placeholder.latestState);
+  } catch (err) {
+    if (remotePlayers.get(id) === placeholder) remotePlayers.delete(id);
+    throw err;
+  }
 }
 
 function removeRemotePlayer(id) {
   const player = remotePlayers.get(id);
   if (!player) return;
-  if (player.mesh) {
-    scene.remove(player.mesh);
-    player.mesh.traverse((child) => {
-      if (child.geometry) child.geometry.dispose?.();
-      if (child.material) child.material.dispose?.();
-    });
-  }
   remotePlayers.delete(id);
+  disposeRemoteCar(player.mesh);
+}
+
+function clearRemotePlayers() {
+  for (const id of Array.from(remotePlayers.keys())) removeRemotePlayer(id);
 }
 
 function applyRemoteState(id, state) {
   const player = remotePlayers.get(id);
-  if (!player) return;
+  if (!player || !state) return;
+  player.latestState = state;
   const target = {
     position: new THREE.Vector3(state.p?.[0] || 0, state.p?.[1] || 0, state.p?.[2] || 0),
     yaw: state.y || 0,
@@ -1061,9 +1080,9 @@ function updateRemotePlayers(dt) {
 }
 
 function resolveServerHost() {
-  const host = location.hostname;
-  if (host === "localhost" || host === "127.0.0.1") return NETWORK.localHost;
-  if (!host || host === "") return NETWORK.defaultHost;
+  const override = new URLSearchParams(location.search).get("server");
+  if (override && /^[a-z0-9.:-]+$/i.test(override)) return override;
+  if (location.hostname === "localhost" || location.hostname === "127.0.0.1") return location.host;
   return NETWORK.defaultHost;
 }
 
@@ -1172,9 +1191,12 @@ async function initNetwork() {
   });
   ws.addEventListener("message", handleMessage);
   ws.addEventListener("close", () => {
+    if (NETWORK.socket !== ws) return;
     NETWORK.mode = "offline";
     setNetStatus("Offline режим (нет соединения)", false);
     NETWORK.socket = null;
+    NETWORK.id = null;
+    clearRemotePlayers();
     scheduleReconnect();
   });
   ws.addEventListener("error", () => {
@@ -1231,6 +1253,7 @@ function handleJoyEvent(e) {
 }
 
 joy.addEventListener("pointerdown", (e) => {
+  if (joyActive) return;
   joyActive = true;
   joyPointerId = e.pointerId;
   joy.setPointerCapture(joyPointerId);
@@ -1256,10 +1279,18 @@ joy.addEventListener("pointerup", (e) => {
 }, { passive: false });
 
 joy.addEventListener("pointercancel", releaseJoy, { passive: false });
+joy.addEventListener("lostpointercapture", releaseJoy);
+window.addEventListener("blur", () => { releaseJoy(); keys.clear(); });
+document.addEventListener("visibilitychange", () => { if (document.hidden) { releaseJoy(); keys.clear(); } });
 
 // Keyboard fallback (PC)
 const keys = new Set();
-window.addEventListener("keydown", (e) => { keys.add(e.code); });
+window.addEventListener("keydown", (e) => {
+  if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.code)) e.preventDefault();
+  keys.add(e.code);
+  if (!e.repeat && e.code === "KeyR") resetCar();
+  if (!e.repeat && e.code === "KeyL") toggleLights();
+});
 window.addEventListener("keyup", (e) => { keys.delete(e.code); });
 
 function keyboardAxes() {
@@ -1303,6 +1334,31 @@ const CAMERA = {
   lookAhead: new THREE.Vector3(0, 1.2, 6.5),
   shakeDecay: 3.8,
 };
+
+function resetCar() {
+  const rb = playerPhysics.body;
+  if (!car || !rb) return;
+  const spawn = getSafeSpawnTransform(NETWORK.id || "local");
+  rb.setTranslation(spawn.position, true);
+  rb.setRotation({ x: 0, y: 0, z: 0, w: 1 }, true);
+  rb.setLinvel({ x: 0, y: 0, z: 0 }, true);
+  rb.setAngvel({ x: 0, y: 0, z: 0 }, true);
+  car.position.copy(spawn.position);
+  car.quaternion.identity();
+  previousTransforms.delete(rb.handle);
+  inputX = inputY = 0;
+  releaseJoy();
+  cameraShake = 0;
+  camera.position.copy(CAMERA.offset).add(car.position);
+}
+
+function toggleLights() {
+  if (!car) return;
+  car.userData.setLights?.(!car.userData.lightsOn);
+  document.getElementById("lightsBtn").setAttribute("aria-pressed", String(car.userData.lightsOn));
+}
+document.getElementById("resetBtn").addEventListener("click", resetCar);
+document.getElementById("lightsBtn").addEventListener("click", toggleLights);
 
 function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
 function approach(current, target, maxDelta) {
@@ -1562,10 +1618,15 @@ function processCollisions() {
 
 function updateCamera(dt) {
   if (!car) return;
-  const desired = CAMERA.offset.clone().applyQuaternion(car.quaternion).add(car.position);
+  // Keep the camera upright even when the car rolls on its side.
+  const heading = new THREE.Vector3(0, 0, 1).applyQuaternion(car.quaternion);
+  const yaw = Math.atan2(heading.x, heading.z);
+  const yawOnly = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
+  const desired = CAMERA.offset.clone().applyQuaternion(yawOnly).add(car.position);
+  desired.y = Math.max(2.5, desired.y);
   camera.position.lerp(desired, 1 - Math.pow(0.001, dt));
   camera.up.set(0, 1, 0);
-  const look = CAMERA.lookAhead.clone().applyQuaternion(car.quaternion).add(car.position);
+  const look = CAMERA.lookAhead.clone().applyQuaternion(yawOnly).add(car.position);
 
   if (cameraShake > 0.0001) {
     const shakeVec = new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5)
@@ -1639,10 +1700,18 @@ async function startGame() {
   makeGroundAndBounds();
   spawnProps(20);
   await setupPlayerCar();
+  document.getElementById("loadOverlay").hidden = true;
+  camera.position.copy(CAMERA.offset).add(car.position);
   initNetwork();
   requestAnimationFrame(tick);
 }
-startGame();
+startGame().catch((error) => {
+  console.error("Mini Car 3D startup failed", error);
+  const overlay = document.getElementById("loadOverlay");
+  overlay.hidden = false;
+  document.getElementById("loadState").textContent = "Ошибка загрузки машины или физики. Проверьте подключение и повторите.";
+  document.getElementById("retryLoad").hidden = false;
+});
 
 // Resize
 function onResize() {

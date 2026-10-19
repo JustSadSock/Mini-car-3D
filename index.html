@@ -13,8 +13,17 @@
 <body>
   <div id="wrap"></div>
 
+  <div id="loadOverlay" role="status" aria-live="polite">
+    <strong>MINI CAR 3D</strong>
+    <p id="loadState">Загружаем машину и физику…</p>
+    <button id="retryLoad" onclick="location.reload()" hidden>Повторить</button>
+  </div>
   <div id="hud">
     <div id="netStatus" class="net-offline">Offline режим</div>
+    <div id="driveActions">
+      <button id="resetBtn" title="Вернуться на старт (R)" aria-label="Вернуть машину на старт">↺ <span>СТАРТ</span></button>
+      <button id="lightsBtn" title="Фары (L)" aria-label="Переключить фары" aria-pressed="true">◈ <span>ФАРЫ</span></button>
+    </div>
     <div id="joy" aria-label="joystick">
       <div id="joyBase"></div>
       <div id="joyNub"></div>

@@ -15,9 +15,12 @@ function log(...args) {
 }
 
 function resolveFile(filePath) {
-  const cleanPath = filePath.split('?')[0];
-  const targetPath = path.join(PUBLIC_DIR, cleanPath);
-  if (!targetPath.startsWith(PUBLIC_DIR)) return null;
+  let pathname;
+  try { pathname = decodeURIComponent(new URL(filePath, 'http://localhost').pathname); }
+  catch (_) { return null; }
+  const targetPath = path.resolve(PUBLIC_DIR, '.' + pathname);
+  const relative = path.relative(PUBLIC_DIR, targetPath);
+  if (relative.startsWith('..') || path.isAbsolute(relative)) return null;
   if (fs.existsSync(targetPath) && fs.statSync(targetPath).isDirectory()) {
     return path.join(targetPath, 'index.html');
   }
@@ -32,7 +35,8 @@ const MIME = {
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
-  '.svg': 'image/svg+xml'
+  '.svg': 'image/svg+xml',
+  '.glb': 'model/gltf-binary'
 };
 
 const CORS = {
@@ -102,7 +106,7 @@ const server = http.createServer((req, res) => {
   fs.createReadStream(resolved).pipe(res);
 });
 
-const wss = new WebSocketServer({ server, path: WS_PATH, clientTracking: true, perMessageDeflate: false });
+const wss = new WebSocketServer({ server, path: WS_PATH, clientTracking: true, perMessageDeflate: false, maxPayload: 4096 });
 
 function broadcast(data, skipId) {
   const payload = typeof data === 'string' ? data : JSON.stringify(data);
@@ -115,13 +119,14 @@ function broadcast(data, skipId) {
 }
 
 function snapshotState(state) {
+  const finite = (v, fallback = 0) => Number.isFinite(v) ? v : fallback;
+  const p = Array.isArray(state?.p) && state.p.length === 3 ? state.p : [0, 0, 0];
   return {
-    p: state?.p || [0, 0, 0],
-    y: state?.y || 0,
-    s: state?.s || 0,
-    st: state?.st || 0,
-    b: Boolean(state?.b),
-    t: Date.now()
+    p: p.map((v) => Math.max(-110, Math.min(110, finite(v)))),
+    y: Math.max(-Math.PI * 2, Math.min(Math.PI * 2, finite(state?.y))),
+    s: Math.max(-40, Math.min(40, finite(state?.s))),
+    st: Math.max(-1, Math.min(1, finite(state?.st))),
+    b: Boolean(state?.b), t: Date.now()
   };
 }
 
