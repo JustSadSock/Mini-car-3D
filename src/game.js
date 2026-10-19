@@ -1454,7 +1454,8 @@ function nextCamera() {
 function moveCarTo(spawn) {
   const rb=playerPhysics.body;
   if(!car||!rb)return;
-  const pos={x:spawn.x,y:1.25,z:spawn.z};
+  // Start at the same safe contact height as the proven initial physics spawn.
+  const pos={x:spawn.x,y:.64,z:spawn.z};
   const yaw=Number.isFinite(spawn.yaw)?spawn.yaw:0;
   const q=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),yaw);
   rb.setTranslation(pos,true);

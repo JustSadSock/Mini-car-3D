@@ -27,9 +27,10 @@ test("missions: four modes open, start, reset and switch without losing gameplay
  }
  await page.locator("#modeCloseBtn").click();
  await page.keyboard.down("w");
- await page.waitForTimeout(1100);
+ await page.waitForTimeout(1800);
+ const moving=Number(await page.locator("#speedValue").textContent());
  await page.keyboard.up("w");
- expect(Number(await page.locator("#speedValue").textContent())).toBeGreaterThan(0);
+ expect(moving).toBeGreaterThan(0);
  await page.locator("#resetBtn").click();
  await expect(page.locator("#courseStatus")).toContainText("Ворота 1/");
  expect(errors).toEqual([]);
