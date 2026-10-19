@@ -42,10 +42,14 @@ export function createOnlineWorldView(THREE,RAPIER,scene,{
             roughness:.82,metalness:.06}));
         mesh.castShadow=true;mesh.receiveShadow=true;
         mesh.name="Server-authoritative shared cargo";
+        mesh.position.set(...item.p);
+        if(item.q?.length===4)mesh.quaternion.set(...item.q);
         scene.add(mesh);boxes.set(item.id,mesh);
       }
-      mesh.position.set(...item.p);
-      if(item.q?.length===4)mesh.quaternion.set(...item.q);
+      // Blend snapshots instead of snapping shared boxes at the 20-Hz packet rate.
+      mesh.userData.targetPosition=new THREE.Vector3(...item.p);
+      if(item.q?.length===4)
+        mesh.userData.targetQuaternion=new THREE.Quaternion(...item.q);
     }
     for(const [key,mesh]of boxes){
       if(found.has(key))continue;
@@ -72,7 +76,15 @@ export function createOnlineWorldView(THREE,RAPIER,scene,{
     }
   }
   function step(){
-    if(!active||!target)return;
+    if(!active)return;
+    for(const mesh of boxes.values()){
+      if(mesh.userData.targetPosition){
+        mesh.position.lerp(mesh.userData.targetPosition,.28);
+        if(mesh.userData.targetQuaternion)
+          mesh.quaternion.slerp(mesh.userData.targetQuaternion,.28);
+      }
+    }
+    if(!target)return;
     const body=getBody();
     if(!body)return;
     const pos=body.translation(),rot=body.rotation();
