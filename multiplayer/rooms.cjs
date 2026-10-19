@@ -30,7 +30,7 @@ function safeState(value,clock=Date.now()){
     y:finite(value.y,-7,7),s:finite(value.s,-40,40),
     st:finite(value.st,-1,1),b:value.b===true,t:clock};
 }
-function createRoomManager({now=Date.now,codeFactory=null}={}){
+function createRoomManager({now=Date.now,codeFactory=null,physicsFactory=null}={}){
   const clients=new Map(),rooms=new Map(),tokens=new Map();
   function send(ws,msg){
     if(ws&&ws.readyState===1){
@@ -56,8 +56,15 @@ function createRoomManager({now=Date.now,codeFactory=null}={}){
   const findRoom=client=>client.room?rooms.get(client.room):null;
   function active(room){return [...room.members].map(id=>clients.get(id))
     .filter(c=>c&&!!c.ws);}
-  function publicMember(c){return {id:c.id,name:c.name,connected:Boolean(c.ws),
-    state:c.state};}
+  function publicMember(c){
+    const room=findRoom(c);
+    const authoritative=room?.physics?.snapshot().players.find(p=>p.id===c.id);
+    const state=authoritative?
+      {p:authoritative.p,y:0,s:authoritative.s,st:authoritative.st,
+        b:authoritative.b,q:authoritative.q,ack:authoritative.ack}:
+      (room?.physics?null:c.state);
+    return {id:c.id,name:c.name,connected:Boolean(c.ws),state};
+  }
   function announce(room,msg,skipId){
     for(const id of room.members){
       if(id===skipId)continue;
@@ -89,7 +96,11 @@ function createRoomManager({now=Date.now,codeFactory=null}={}){
     if(!room){client.room=null;return;}
     if(room.race)cancelRace(room,'Участник покинул совместное испытание');
     room.members.delete(client.id);client.room=null;
-    if(!room.members.size){rooms.delete(room.code);}
+    room.physics?.removePlayer(client.id);
+    if(!room.members.size){
+      room.physics?.dispose();
+      rooms.delete(room.code);
+    }
     else {
       if(room.host===client.id)pickHost(room);
       announce(room,{type:'peer-left',id:client.id});
@@ -105,6 +116,7 @@ function createRoomManager({now=Date.now,codeFactory=null}={}){
       room.members.add(client.id);
     }
     client.room=room.code;
+    room.physics?.addPlayer(client.id,room.members.size-1);
     client.state=null;
     client.lastStateAt=0;
     send(client.ws,stateOf(room));
@@ -114,7 +126,8 @@ function createRoomManager({now=Date.now,codeFactory=null}={}){
   function create(client){
     leave(client,{notify:false});
     const code=makeCode();
-    const room={code,host:client.id,members:new Set(),race:null};
+    const room={code,host:client.id,members:new Set(),race:null,
+      physics:physicsFactory?.(code)||null};
     rooms.set(code,room);enter(client,room);
   }
   function join(client,raw){
@@ -140,6 +153,7 @@ function createRoomManager({now=Date.now,codeFactory=null}={}){
     // All drivers reposition at their workshop spawn when the race begins.
     // Clear stale pre-race poses so legitimate respawns aren't flagged as teleports.
     for(const member of members){member.state=null;member.lastStateAt=0;}
+    room.physics?.resetAll();
     room.race={stage:0,reached:new Set(),startedAt:now()};
     announce(room,{type:'race-start',stage:0,targets:CHECKPOINTS,
       startedAt:room.race.startedAt});
@@ -147,6 +161,8 @@ function createRoomManager({now=Date.now,codeFactory=null}={}){
   }
   function receiveState(client,state){
     const room=findRoom(client);if(!room)return;
+    // Older snapshots must NEVER influence a server-authoritative room.
+    if(room.physics)return;
     const time=now();const normalized=safeState(state,time);
     if(!normalized){fail(client,'invalid_state');return;}
     if(time-client.lastStateAt<35)return;
@@ -178,6 +194,44 @@ function createRoomManager({now=Date.now,codeFactory=null}={}){
       }else announce(room,{type:'race-progress',stage:race.stage,
         reached:[],targets:CHECKPOINTS});
       publish(room);
+    }
+  }
+  function receiveInput(client,command){
+    const room=findRoom(client);
+    if(!room||!room.physics)return;
+    if(!room.physics.input(client.id,command))fail(client,'invalid_message');
+  }
+  // Server-only state advances; checkpoint progress reads Rapier positions,
+  // never coordinates provided by a remote browser.
+  function advance(){
+    for(const room of rooms.values()){
+      if(!room.physics)continue;
+      room.physics.step();
+      const state=room.physics.snapshot();
+      if(state.tick%3===0)announce(room,state);
+      const race=room.race;
+      if(!race)continue;
+      const target=CHECKPOINTS[race.stage];
+      for(const id of room.members){
+        if(race.reached.has(id))continue;
+        const position=room.physics.position(id);
+        if(position&&Math.hypot(position.x-target.x,position.z-target.z)<=5){
+          race.reached.add(id);
+          announce(room,{type:'race-progress',stage:race.stage,
+            reached:[...race.reached],targets:CHECKPOINTS});
+        }
+      }
+      if(race.reached.size===room.members.size){
+        race.stage++;race.reached.clear();
+        if(race.stage>=CHECKPOINTS.length){
+          announce(room,{type:'race-finish',
+            duration:Math.max(0,(now()-race.startedAt)/1000),
+            players:room.members.size});
+          room.race=null;
+        }else announce(room,{type:'race-progress',stage:race.stage,
+          reached:[],targets:CHECKPOINTS});
+        publish(room);
+      }
     }
   }
   function resume(client,token){
@@ -224,8 +278,16 @@ function createRoomManager({now=Date.now,codeFactory=null}={}){
       else if(data.type==='leave-room')leave(current);
       else if(data.type==='reset-position'){
         const room=findRoom(current);
-        if(room&&!room.race){current.state=null;current.lastStateAt=0;}
+        if(room&&!room.race){
+          if(room.physics)room.physics.recover(current.id);
+          else {current.state=null;current.lastStateAt=0;}
+        }
       }
+      else if(data.type==='recover'){
+        const room=findRoom(current);
+        if(room)room.physics?.recover(current.id);
+      }
+      else if(data.type==='input')receiveInput(current,data.input);
       else if(data.type==='start-race')startRace(current);
       else if(data.type==='state')receiveState(current,data.state);
     }
@@ -253,7 +315,7 @@ function createRoomManager({now=Date.now,codeFactory=null}={}){
       clients.delete(client.id);tokens.delete(client.token);
     }
   }
-  return {connect,cleanup,rooms,clients,receiveState,
+  return {connect,cleanup,advance,rooms,clients,receiveState,
     constants:{MAX_PLAYERS,GRACE_MS,CHECKPOINTS}};
 }
 module.exports={createRoomManager,safeState,sanitizeName,CHECKPOINTS,MAX_PLAYERS,GRACE_MS};
