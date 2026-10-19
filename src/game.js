@@ -1,5 +1,7 @@
 import * as THREE from "three";
 import { createDrivingChallenge } from "./challenge.js";
+import { createModeEngine,MODE_ORDER,MODE_CONFIG } from "./modes.js";
+import { createActivityVisuals } from "./activity-visuals.js";
 import { createDiorama } from "./diorama.js";
 import { createRoadFeedback } from "./road-feedback.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
@@ -167,7 +169,21 @@ SURFACE_PATCHES.forEach(patch => {
 // Workshop construction happens after the fixed ground physics body is registered.
 let diorama = null;
 const roadFeedback = createRoadFeedback(THREE, scene, { lowQuality: isMobileGPU });
-const challenge = createDrivingChallenge(THREE, scene);
+let recordStorage=null;
+try {recordStorage=window.localStorage;}catch(_) { /* embedded private context */ }
+const modeEngine=createModeEngine({storage:recordStorage,
+  onComplete:result=>showModeResult(result)
+});
+const challenge=createDrivingChallenge(THREE,scene,
+  time=>modeEngine.registerSlalom(time));
+const activityVisuals=createActivityVisuals(THREE,scene);
+let controlsPaused=false;
+let toastClock=0;
+function modeMessage(message){
+  const el=document.getElementById("modeToast");
+  el.textContent=message;
+  el.hidden=false;toastClock=2.2;
+}
 
 function registerBody(rb, mesh, collider, meta = {}) {
   if (rb) {
@@ -995,6 +1011,7 @@ async function makeCar(isPlayer = true, withPhysics = true, spawnOverride = null
 async function setupPlayerCar() {
   car = await makeCar(true, true, getSafeSpawnTransform(NETWORK.id || "local"));
   scene.add(car);
+  activityVisuals.attachCar(car);
   ensureLocalColor();
 }
 
@@ -1378,6 +1395,8 @@ window.addEventListener("keydown", (e) => {
   if (!e.repeat && e.code === "KeyF") recoverCar();
   if (!e.repeat && e.code === "KeyP") toggleDiagnostics();
   if (!e.repeat && e.code === "KeyC") nextCamera();
+  if (!e.repeat && e.code === "KeyM") openModePanel();
+  if (!e.repeat && e.code === "Escape") closeModePanel();
 });
 window.addEventListener("keyup", (e) => { keys.delete(e.code); });
 
@@ -1432,29 +1451,101 @@ function nextCamera() {
   // Explicit button state is meaningful: every press cycles a distinct view.
 }
 
-function resetCar() {
-  const rb = playerPhysics.body;
-  if (!car || !rb) return;
-  const spawn = getSafeSpawnTransform(NETWORK.id || "local");
-  rb.setTranslation(spawn.position, true);
-  rb.setRotation({ x: 0, y: 0, z: 0, w: 1 }, true);
-  rb.setLinvel({ x: 0, y: 0, z: 0 }, true);
-  rb.setAngvel({ x: 0, y: 0, z: 0 }, true);
-  car.position.copy(spawn.position);
-  car.quaternion.identity();
+function moveCarTo(spawn) {
+  const rb=playerPhysics.body;
+  if(!car||!rb)return;
+  const pos={x:spawn.x,y:1.25,z:spawn.z};
+  const yaw=Number.isFinite(spawn.yaw)?spawn.yaw:0;
+  const q=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),yaw);
+  rb.setTranslation(pos,true);
+  rb.setRotation({x:q.x,y:q.y,z:q.z,w:q.w},true);
+  rb.setLinvel({x:0,y:0,z:0},true);
+  rb.setAngvel({x:0,y:0,z:0},true);
+  car.position.set(pos.x,pos.y,pos.z);
+  car.quaternion.copy(q);
   previousTransforms.delete(rb.handle);
-  inputX = inputY = 0;
-  releaseJoy();
+  inputX=inputY=0;releaseJoy();keys.clear();
   playerPhysics.controller?.reset();
-  playerPhysics.telemetry = null;
-  recoveryTimer = 0;
-  carRecoveryHint = "";
-  cameraShake = 0;
-  camera.position.copy(CAMERA.presets[cameraPreset].offset).add(car.position);
-  roadFeedback.reset();
+  playerPhysics.telemetry=null;recoveryTimer=0;carRecoveryHint="";
+  cameraShake=0;cameraYaw=yaw;
+  camera.position.copy(CAMERA.presets[cameraPreset].offset)
+    .applyQuaternion(q).add(car.position);
+}
+function resetCar() {
+  const mode=modeEngine.getState().id;
+  modeEngine.reset();
   challenge.reset();
+  roadFeedback.reset();
+  document.getElementById("resultPanel").hidden=true;
+  controlsPaused=false;
+  moveCarTo(MODE_CONFIG[mode].start);
   updateDrivingHud(1);
 }
+function setMode(next) {
+  if(!MODE_CONFIG[next])return;
+  const spawn=modeEngine.select(next);
+  challenge.setActive(next==="slalom");
+  document.getElementById("resultPanel").hidden=true;
+  document.getElementById("modePanel").hidden=true;
+  document.getElementById("modeBtn").setAttribute("aria-expanded","false");
+  controlsPaused=false;
+  roadFeedback.reset();
+  moveCarTo(spawn);
+  document.getElementById("modeName").textContent=MODE_CONFIG[next].name;
+  modeMessage(MODE_CONFIG[next].subtitle);
+  updateDrivingHud(1);
+}
+function openModePanel() {
+  controlsPaused=true;
+  inputX=inputY=0;releaseJoy();keys.clear();
+  const panel=document.getElementById("modePanel");
+  panel.hidden=false;
+  document.getElementById("modeBtn").setAttribute("aria-expanded","true");
+  const selected=modeEngine.getState().id;
+  const records=modeEngine.getRecords();
+  panel.querySelectorAll("[data-mode]").forEach(button=>{
+    const id=button.dataset.mode;
+    button.setAttribute("aria-current",String(id===selected));
+    const rec=records[id];
+    button.querySelector(".mode-best").textContent=rec?
+      (MODE_CONFIG[id].better==="max"?"РЕКОРД В ПОЛЁТЕ ":"ЛУЧШЕЕ ВРЕМЯ ")+
+        rec.value.toFixed(2)+" с · "+rec.medal.toUpperCase():
+      "ЕЩЁ НЕ ПРОЙДЕНО";
+  });
+}
+function closeModePanel() {
+  document.getElementById("modePanel").hidden=true;
+  document.getElementById("modeBtn").setAttribute("aria-expanded","false");
+  controlsPaused=!document.getElementById("resultPanel").hidden;
+}
+function showModeResult(result) {
+  controlsPaused=true;
+  releaseJoy();keys.clear();
+  const el=document.getElementById("resultPanel");
+  document.getElementById("resultTitle").textContent=
+    MODE_CONFIG[result.id].name+" · ГОТОВО";
+  document.getElementById("resultMedal").textContent={
+    gold:"ЗОЛОТО",silver:"СЕРЕБРО",bronze:"БРОНЗА",finish:"ФИНИШ"
+  }[result.medal];
+  document.getElementById("resultMedal").dataset.medal=result.medal;
+  document.getElementById("resultValue").textContent=result.value.toFixed(2)+" с";
+  document.getElementById("resultDetail").textContent=result.improved?
+    "НОВЫЙ РЕКОРД · СОХРАНЕНО":"РЕЗУЛЬТАТ СОХРАНЁН В ИСТОРИИ ЗАЕЗДА";
+  el.hidden=false;
+}
+document.getElementById("modeBtn").addEventListener("click",openModePanel);
+document.getElementById("modeCloseBtn").addEventListener("click",closeModePanel);
+document.querySelectorAll("#modePanel [data-mode]").forEach(button=>
+  button.addEventListener("click",()=>setMode(button.dataset.mode)));
+document.getElementById("resultRetry").addEventListener("click",resetCar);
+document.getElementById("resultNext").addEventListener("click",()=>{
+  const index=MODE_ORDER.indexOf(modeEngine.getState().id);
+  setMode(MODE_ORDER[(index+1)%MODE_ORDER.length]);
+});
+document.getElementById("resultModes").addEventListener("click",()=>{
+  document.getElementById("resultPanel").hidden=true;
+  openModePanel();
+});
 
 function recoverCar() {
   const rb=playerPhysics.body;
@@ -1507,10 +1598,22 @@ function updateDrivingHud(dt) {
   hudClock = 0;
   const s = challenge.getState();
   document.getElementById("speedValue").textContent = String(Math.round(Math.abs(car?.userData.lastSpeed || 0) * 3.6));
-  document.getElementById("courseStatus").textContent = s.finished ? "ФИНИШ · Новый круг" :
-    (s.running ? `Ворота ${s.next}/${s.total} · ${s.time.toFixed(1)} с` : `Ворота ${s.next}/${s.total} · Старт`);
-  document.getElementById("recordValue").textContent = s.best ? `${s.best.toFixed(2)} с` : "—";
-  document.getElementById("driveStats").classList.toggle("lap-finished",s.finished);
+  const activity=modeEngine.getState();
+  document.getElementById("courseStatus").textContent=activity.id==="slalom"?
+    (s.finished?"ФИНИШ · Новый круг":
+      (s.running?`Ворота ${s.next}/${s.total} · ${s.time.toFixed(1)} с`:
+        `Ворота ${s.next}/${s.total} · Старт`)):
+    (activity.completed?"ИСПЫТАНИЕ ВЫПОЛНЕНО":
+      activity.hint || MODE_CONFIG[activity.id].subtitle);
+  const record=activity.record;
+  document.getElementById("recordValue").textContent=record?
+    record.value.toFixed(2)+" с":(s.best&&activity.id==="slalom"?
+      s.best.toFixed(2)+" с":"—");
+  document.getElementById("driveStats").classList.toggle("lap-finished",
+    s.finished||activity.completed);
+  document.getElementById("modeName").textContent=activity.config.name;
+  document.getElementById("modeProgress").textContent=activity.id==="slalom"?
+    `${Math.min(s.next,s.total)}/${s.total}`:activity.progress;
   const state=playerPhysics.telemetry;
   document.getElementById("surfaceStatus").dataset.surface = state?.surface || "air";
   document.getElementById("surfaceStatus").textContent = carRecoveryHint ||
@@ -1631,7 +1734,8 @@ function applyPlayerForces(dt) {
   const controller = playerPhysics.controller;
   if (!car || !rb || !controller) return;
   // Both inputs use the same frame: +Z throttle, +X right steering.
-  const axes = joyActive && isCoarsePointer ? {x:joyX,y:joyY} : keyboardAxes();
+  const axes=controlsPaused?{x:0,y:0}:
+    (joyActive&&isCoarsePointer?{x:joyX,y:joyY}:keyboardAxes());
   const ax = Math.abs(axes.x) < 0.06 ? 0 : axes.x;
   const ay = Math.abs(axes.y) < 0.06 ? 0 : axes.y;
   inputX = approach(inputX, ax, dt * 6.5);
@@ -1737,6 +1841,7 @@ function processCollisions() {
     const impactStrength = clamp((relVel.length() - 1.1) * 0.18, 0, 2);
     if (impactStrength < 0.18 || collisionCooldown > 0) return;
     collisionCooldown = 0.10;
+    modeEngine.impact(impactStrength);
 
     // Rapier 0.12 contactPair requires a callback; calling it without one
     // crashes on actual contact. Midpoint is a stable fallback for toy impacts.
@@ -1821,6 +1926,17 @@ function stepPhysics(dt) {
   applyPlayerForces(dt);
   world.step(eventQueue);
   processCollisions();
+  const rb=playerPhysics.body;
+  if(rb&&!controlsPaused){
+    const p=rb.translation(),v=rb.linvel(),r=rb.rotation();
+    const facing=new THREE.Vector3(0,0,1).applyQuaternion(
+      new THREE.Quaternion(r.x,r.y,r.z,r.w));
+    modeEngine.update(dt,{
+      position:p,speed:Math.hypot(v.x,v.z),vx:v.x,vz:v.z,
+      yaw:Math.atan2(facing.x,facing.z),
+      grounded:playerPhysics.telemetry?.grounded||false
+    });
+  }
   collisionCooldown=Math.max(0,collisionCooldown-dt);
 }
 
@@ -1869,7 +1985,30 @@ function tick(now) {
   updateRemotePlayers(blendDt);
   diorama?.update(blendDt);
   roadFeedback.update(blendDt, car, playerPhysics.telemetry);
-  challenge.update(blendDt, car?.position, Math.abs(car?.userData.lastSpeed || 0));
+  if(!controlsPaused&&modeEngine.getState().id==="slalom") {
+    challenge.update(blendDt,car?.position,
+      Math.abs(car?.userData.lastSpeed||0));
+  }
+  for(const event of modeEngine.consumeEvents()) {
+    if(event.type==="next-ramp") {
+      moveCarTo(event.start);
+      modeMessage("ВТОРОЙ ТРАМПЛИН · НАБИРАЙ СКОРОСТЬ");
+    }else if(event.type==="loaded"){
+      modeMessage("ГРУЗ ЗАГРУЖЕН · ВЕЗИТЕ АККУРАТНО");
+    }else if(event.type==="cargo-lost"){
+      modeMessage("ГРУЗ ПОВРЕЖДЁН · ВЕРНИТЕСЬ К ПОГРУЗКЕ");
+    }else if(event.type==="parked"){
+      modeMessage("МЕСТО ЗАСЧИТАНО · СЛЕДУЮЩАЯ СТОЯНКА");
+    }else if(event.type==="delivered"){
+      modeMessage("ДОСТАВЛЕНО · СЛЕДУЮЩЕЕ ЗАДАНИЕ");
+    }
+  }
+  const activity=modeEngine.getState();
+  activityVisuals.update(blendDt,activity);
+  if(toastClock>0){
+    toastClock=Math.max(0,toastClock-blendDt);
+    if(toastClock===0)document.getElementById("modeToast").hidden=true;
+  }
   updateDrivingHud(blendDt);
 
   if (NETWORK.mode === "online") {
@@ -1889,6 +2028,9 @@ async function startGame() {
   makeRamps();
   // Hand-crafted physical scenery replaces random, incoherent primitives.
   await setupPlayerCar();
+  challenge.setActive(true);
+  document.getElementById("modePanel").hidden=true;
+  document.getElementById("resultPanel").hidden=true;
   document.getElementById("loadOverlay").hidden = true;
   camera.position.copy(CAMERA.presets[cameraPreset].offset).add(car.position);
   updateDrivingHud(1);
