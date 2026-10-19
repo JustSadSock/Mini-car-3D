@@ -1386,8 +1386,11 @@ document.getElementById("copyInviteBtn").addEventListener("click",async()=>{
   const endpoint=document.getElementById("roomServerUrl").value.trim();
   if(endpoint)invite.searchParams.set("server",endpoint);
   try{
-    await navigator.clipboard.writeText(invite.toString());
-    displayLobbyStatus("Ссылка-приглашение скопирована");
+    const localhost=["localhost","127.0.0.1"].includes(location.hostname);
+    await navigator.clipboard.writeText(localhost?code:invite.toString());
+    displayLobbyStatus(localhost?
+      "Код скопирован. Для другого устройства используйте LAN-IP компьютера с сервером.":
+      "Ссылка-приглашение скопирована");
   }catch(_){
     try{await navigator.clipboard.writeText(code);
       displayLobbyStatus("Код комнаты скопирован");
