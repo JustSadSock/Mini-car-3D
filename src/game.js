@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { createDrivingChallenge } from "./challenge.js";
+import { createVehicleDynamics, normalizeWheels, SURFACES, SURFACE_PATCHES, TUNING } from "./vehicle-physics.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { clone as cloneSkeleton } from "three/examples/jsm/utils/SkeletonUtils.js";
 import RAPIER from "https://cdn.jsdelivr.net/npm/@dimforge/rapier3d-compat@0.12.0/rapier.es.js";
@@ -132,6 +133,20 @@ grid.material.transparent = true;
 grid.material.opacity = 0.25;
 grid.position.y = 0.01;
 scene.add(grid);
+// Grip patches are both visible surfaces and queried by each tire in physics.
+SURFACE_PATCHES.forEach(patch => {
+  const kind = SURFACES[patch.type];
+  const tile = new THREE.Mesh(new THREE.PlaneGeometry(patch.width, patch.depth),
+    new THREE.MeshStandardMaterial({color:kind.color,
+      roughness:patch.type === "ice" ? 0.17 : 0.91,
+      metalness:patch.type === "ice" ? 0.23 : 0,
+      transparent:true, opacity:patch.type === "ice" ? 0.95 : 0.87,
+      depthWrite:false, polygonOffset:true, polygonOffsetFactor:-1}));
+  tile.rotation.x=-Math.PI/2;
+  tile.position.set(patch.x,0.025,patch.z);
+  tile.receiveShadow=true;
+  scene.add(tile);
+});
 const challenge = createDrivingChallenge(THREE, scene);
 
 function registerBody(rb, mesh, collider, meta = {}) {
@@ -150,8 +165,8 @@ function makeGroundAndBounds() {
   const groundCollider = world.createCollider(
     RAPIER.ColliderDesc.cuboid(110, 0.1, 110)
       .setTranslation(0, -0.05, 0)
-      .setFriction(1.15) // higher friction = less sliding (arcade)
-      .setRestitution(0.1), // lower bounce = stickier ground
+      .setFriction(0.28) // tires provide grip, not the flat ground collider
+      .setRestitution(0.04), // stable physical suspension
     groundBody
   );
   registerBody(groundBody, ground, groundCollider, { type: "ground" });
@@ -630,6 +645,9 @@ function categorizeWheels(root) {
       steerable: isFront,
       baseQuaternion: mesh.quaternion.clone(),
       pivotBaseQuaternion: pivot.quaternion.clone(),
+      basePivotPosition: pivot.position.clone(),
+      localPosition: root.worldToLocal(mesh.getWorldPosition(new THREE.Vector3())),
+      suspensionVisual: 0,
       angle: 0,
     };
   });
@@ -880,8 +898,8 @@ async function makeCar(isPlayer = true, withPhysics = true, spawnOverride = null
           .setTranslation(startPos.x, startPos.y, startPos.z)
           .setRotation({ x: startRot.x, y: startRot.y, z: startRot.z, w: startRot.w })
           .setCanSleep(false)
-          .setLinearDamping(1.4) // lower for more glide (also faster fall), higher for tighter stop
-          .setAngularDamping(3.2) // lower for more spin, higher for stability
+          .setLinearDamping(0.24) // coasting is determined by tire forces
+          .setAngularDamping(1.25) // retain believable angular motion
       : RAPIER.RigidBodyDesc.kinematicPositionBased()
           .setTranslation(startPos.x, startPos.y, startPos.z)
           .setRotation({ x: startRot.x, y: startRot.y, z: startRot.z, w: startRot.w })
@@ -893,8 +911,8 @@ async function makeCar(isPlayer = true, withPhysics = true, spawnOverride = null
     }
     const colliderDesc = RAPIER.ColliderDesc.cuboid(halfX, halfY, halfZ)
       .setTranslation(center.x - car.position.x, center.y - car.position.y - size.y * 0.08, center.z - car.position.z)
-      .setFriction(1.2) // more friction = grippier tabletop feel
-      .setRestitution(0.26) // less bounce = calmer toy
+      .setFriction(0.18) // chassis no longer supplies unlimited grip
+      .setRestitution(0.08) // no rubber-ball landing
       .setDensity(0.72);
     const collider = world.createCollider(colliderDesc, rb);
     registerBody(rb, car, collider, { type: isPlayer ? "car" : "car-remote", dynamic: true });
@@ -902,6 +920,15 @@ async function makeCar(isPlayer = true, withPhysics = true, spawnOverride = null
     if (isPlayer) {
       playerPhysics.body = rb;
       playerPhysics.collider = collider;
+      // Four reliable chassis-mounted spring points, aligned to real GLB wheels.
+      const candidates = wheelRig.map(w => w.localPosition);
+      const chassisBottom = (center.y - car.position.y - size.y * 0.08) - halfY;
+      const tireRadius = THREE.MathUtils.clamp(radius, 0.15, Math.max(0.28, halfY * 0.85));
+      const anchors = normalizeWheels(candidates, halfX * 0.78,
+        halfZ * 0.82, chassisBottom + tireRadius - 0.08);
+      playerPhysics.controller = createVehicleDynamics({
+        RAPIER, THREE, world, body:rb, collider, wheelRadius:tireRadius, wheelPoints:anchors
+      });
     }
     car.position.copy(startPos);
   }
@@ -1128,7 +1155,7 @@ function sendStateSnapshot() {
   NETWORK.lastSend = now;
   const yaw = car.rotation.y;
   const speed = car.userData.lastSpeed || 0;
-  const steerVisual = -clamp(inputX, -1, 1) * (Math.PI / 7);
+  const steerVisual = clamp(inputX, -1, 1) * TUNING.axleSteer;
   const payload = {
     type: "state",
     state: {
@@ -1305,12 +1332,18 @@ function keyboardAxes() {
   if (right) x += 1;
   if (up) y += 1;
   if (down) y -= 1;
-  // Invert both axes for keyboard to mirror requested control scheme
-  return { x: -x, y: -y };
+  // Model headlights face +Z; W/up and joystick-up must accelerate +Z.
+  return { x, y };
 }
 
 // --- Physics driving ---
-const playerPhysics = { body: null, collider: null };
+const playerPhysics = { body: null, collider: null, controller: null, telemetry: null };
+let renderFrameDt = FIXED_DT;
+let carRecoveryHint = "";
+let recoveryTimer = 0;
+let diagnosticEnabled = false;
+let collisionCooldown = 0;
+const collisionVelocities = new Map();
 let inputX = 0;
 let inputY = 0;
 let accumulator = 0;
@@ -1591,12 +1624,20 @@ function syncPhysicsToMeshes(alpha = 1) {
     }
 
     if (mesh === car) {
-      const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(currentQuat);
+      const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(currentQuat);
       const vel = rb.linvel();
       const speed = forward.dot(new THREE.Vector3(vel.x, vel.y, vel.z));
-      const rollDelta = (speed / (car.userData.wheelRadius || 1)) * lastPhysicsDt;
-      const steerVisual = clamp(-inputX, -1, 1) * (Math.PI / 7);
+      const rollDelta = (speed / (car.userData.wheelRadius || 1)) * renderFrameDt;
+      const steerVisual = clamp(inputX, -1, 1) * TUNING.axleSteer;
       applyWheelPose(car, steerVisual, rollDelta);
+      const compression = playerPhysics.controller?.getCompression() || [];
+      (car.userData.wheelRig || []).forEach(wheel => {
+        const index = (wheel.localPosition.z >= 0 ? 0 : 2) + (wheel.localPosition.x > 0 ? 1 : 0);
+        const target = compression[index] || 0;
+        wheel.suspensionVisual += (target - wheel.suspensionVisual) * (1-Math.exp(-12*renderFrameDt));
+        const pivot = wheel.pivot || wheel.mesh;
+        pivot.position.y = wheel.basePivotPosition.y + wheel.suspensionVisual * 0.42;
+      });
     }
   });
 }
@@ -1668,6 +1709,7 @@ function updateParticles(dt) {
 function tick(now) {
   const dt = Math.min((now - last) / 1000, 0.05);
   last = now;
+  renderFrameDt = dt;
   accumulator = Math.min(accumulator + dt, MAX_ACCUM);
 
   if (accumulator >= FIXED_DT) {
