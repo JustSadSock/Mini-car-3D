@@ -1,13 +1,13 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const { randomUUID } = require('crypto');
+const { createRoomManager } = require('./multiplayer/rooms.cjs');
 const { WebSocketServer } = require('ws');
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
 const PUBLIC_DIR = __dirname;
 const WS_PATH = '/ws';
-const clients = new Map();
+const roomManager = createRoomManager();
 
 function log(...args) {
   const ts = new Date().toISOString();
@@ -106,86 +106,39 @@ const server = http.createServer((req, res) => {
   fs.createReadStream(resolved).pipe(res);
 });
 
-const wss = new WebSocketServer({ server, path: WS_PATH, clientTracking: true, perMessageDeflate: false, maxPayload: 4096 });
+const wss = new WebSocketServer({
+  server, path: WS_PATH, clientTracking: true,
+  perMessageDeflate: false, maxPayload: 4096
+});
 
-function broadcast(data, skipId) {
-  const payload = typeof data === 'string' ? data : JSON.stringify(data);
-  for (const [id, client] of clients.entries()) {
-    if (id === skipId) continue;
-    if (client.ws.readyState === client.ws.OPEN) {
-      client.ws.send(payload);
-    }
+// Socket traffic only begins when a driver explicitly creates or joins a room.
+// The server never broadcasts remote players to unrelated visitors.
+wss.on('connection', (ws, req) => {
+  const origin=req.headers.origin;
+  const sameSite=origin && (() => {
+    try {return new URL(origin).host === req.headers.host;} catch(_) {return false;}
+  })();
+  if (origin && !sameSite && !CORS.allowList(origin)) {
+    ws.close(1008,'Origin not allowed');
+    return;
   }
-}
-
-function snapshotState(state) {
-  const finite = (v, fallback = 0) => Number.isFinite(v) ? v : fallback;
-  const p = Array.isArray(state?.p) && state.p.length === 3 ? state.p : [0, 0, 0];
-  return {
-    p: p.map((v) => Math.max(-110, Math.min(110, finite(v)))),
-    y: Math.max(-Math.PI * 2, Math.min(Math.PI * 2, finite(state?.y))),
-    s: Math.max(-40, Math.min(40, finite(state?.s))),
-    st: Math.max(-1, Math.min(1, finite(state?.st))),
-    b: Boolean(state?.b), t: Date.now()
-  };
-}
-
-wss.on('connection', (ws) => {
-  const id = randomUUID();
-  clients.set(id, { ws, state: snapshotState(), lastSeen: Date.now() });
-  log('client connected', id, 'total:', clients.size);
-
-  const others = [];
-  for (const [otherId, client] of clients.entries()) {
-    if (otherId === id) continue;
-    others.push({ id: otherId, state: snapshotState(client.state) });
-  }
-
-  ws.send(JSON.stringify({ type: 'hello', id, players: others }));
-  broadcast({ type: 'player-joined', id }, id);
-
-  ws.on('message', (raw) => {
-    let data;
-    try {
-      data = JSON.parse(raw.toString());
-    } catch (err) {
-      log('invalid json from', id, err.message);
-      return;
-    }
-
-    if (data.type === 'state' && data.state) {
-      const state = snapshotState(data.state);
-      const client = clients.get(id);
-      if (!client) return;
-      client.state = state;
-      client.lastSeen = Date.now();
-      broadcast({ type: 'state', id, state }, id);
-    }
-  });
-
-  ws.on('close', () => {
-    clients.delete(id);
-    broadcast({ type: 'player-left', id }, id);
-    log('client disconnected', id, 'total:', clients.size);
-  });
+  ws.isAlive=true;
+  ws.on('pong',()=>{ws.isAlive=true;});
+  roomManager.connect(ws);
 });
 
 const HEARTBEAT_MS = 15000;
-setInterval(() => {
-  const now = Date.now();
-  for (const [id, client] of clients.entries()) {
-    if (client.ws.readyState !== client.ws.OPEN) continue;
-    if (now - client.lastSeen > HEARTBEAT_MS * 2) {
-      log('closing stale connection', id);
-      client.ws.terminate();
-      clients.delete(id);
-      broadcast({ type: 'player-left', id }, id);
-    } else {
-      client.ws.ping();
-    }
+const maintenance = setInterval(()=>{
+  for(const ws of wss.clients){
+    if(ws.readyState!==ws.OPEN)continue;
+    if(!ws.isAlive){ws.terminate();continue;}
+    ws.isAlive=false;
+    ws.ping();
   }
-}, HEARTBEAT_MS);
+  roomManager.cleanup();
+},HEARTBEAT_MS);
+maintenance.unref?.();
 
 server.listen(PORT, () => {
-  log(`server listening on http://localhost:${PORT}`);
+  log(`server listening on http://localhost:${PORT} (private rooms)`);
 });
