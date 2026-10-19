@@ -119,3 +119,17 @@ left: 24%;
  .speed strong {font-size:27px;}
  .runStats {font-size:11px;}
 }
+
+#surfaceStatus {font-weight:700;letter-spacing:.04em;color:#ffbd77;opacity:.95;}
+#physicsDebug {position:absolute;left:calc(env(safe-area-inset-left,0px) + 12px);
+ bottom:calc(env(safe-area-inset-bottom,0px) + 16px);padding:10px 13px;
+ max-width:min(380px,calc(100vw - 30px));background:rgba(15,22,28,.92);
+ border:1px solid rgba(255,190,112,.35);border-radius:10px;
+ font:12px/1.5 ui-monospace,monospace;pointer-events:none;}
+#physicsDebug[hidden] {display:none;}
+@media(max-width:540px){
+ #driveActions {gap:4px;}
+ #driveActions button {width:46px;height:49px;font-size:18px;}
+ #driveActions button span {font-size:8px;}
+ #physicsDebug {bottom:calc(env(safe-area-inset-bottom,0px) + 8px);font-size:10px;}
+}

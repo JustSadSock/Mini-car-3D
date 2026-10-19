@@ -17,13 +17,18 @@
 - [ ] Browser smoke tests (mobile, desktop, WebGL startup, net disconnect).
 
 ## P1 — Physics
-- True grounded checks with wheel raycasts, suspension and visible compression.
-- Correct traction and yaw while airborne, downforce and stable roll handling.
-- Physically correct chassis collider placement and wheel rotation axes (validate against GLB).
-- Surface grip for wood, asphalt, gravel, mud and ice.
-- Collision impulse-based effect/audio scaling; avoid falsely triggered camera shake.
-- Stuck/upside-down respawn and deterministic 30/60/120 FPS tests.
-- Physics debugger and reproducible scenario fixtures.
+- [x] Four wheel raycasts, real spring/damper impulse forces and individually animated suspension.
+- [x] Grounded-dependent throttle and cornering, grip capped by normal force and tire load.
+- [x] Stable air behavior with limited downforce only when grounded.
+- [x] Real asphalt/dirt/ice/rubber grip patches matched to visual terrain.
+- [x] Consistent forward and steering directions for keyboard, joystick and GLB lights.
+- [x] Less artificial chassis friction, damping and bouncing.
+- [x] Collision effects use pre-solver approach speed and per-impact cooldown.
+- [x] In-place rollover recovery (F or button); out-of-bounds recovery; reset R.
+- [x] Physics telemetry (P or touch) for contacts, slip, grip, spring travel.
+- [ ] Manual WebGL/GLB drive validation on desktop and iOS, including actual wheel placement.
+- [ ] Playwright screenshots, collision and 30/60/120 FPS tests.
+- [ ] Ramps and landing course for controlled suspension tuning.
 
 ## P2 — Visual identity
 - Build a real toy-scale diorama: modeled roads, workbench, rails, ramps, modular props.
