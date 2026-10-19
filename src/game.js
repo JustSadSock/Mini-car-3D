@@ -1292,7 +1292,7 @@ function handleNetworkEvent(message){
     else applyRemoteState(message.id,message.state);
   }else if(message.type==="race-start"){
     setMode("slalom");
-    moveCarTo({x:0,z:0,yaw:0});
+    // The authoritative server already reset all car rigid bodies.
     document.getElementById("onlinePanel").hidden=true;
     onlinePanelOpen=false;
     document.getElementById("onlineBtn").setAttribute("aria-expanded","false");
@@ -1633,12 +1633,16 @@ function setMode(next) {
   document.getElementById("modeBtn").setAttribute("aria-expanded","false");
   controlsPaused=false;
   roadFeedback.reset();
-  moveCarTo(spawn);
+  if(!onlineView.active)moveCarTo(spawn);
   document.getElementById("modeName").textContent=MODE_CONFIG[next].name;
   modeMessage(MODE_CONFIG[next].subtitle);
   updateDrivingHud(1);
 }
 function openModePanel() {
+  if(onlineView.active){
+    modeMessage("ДЛЯ ОДИНОЧНЫХ ИСПЫТАНИЙ ВЫЙДИТЕ ИЗ СЕТЕВОЙ КОМНАТЫ");
+    return;
+  }
   if(convoyRace){
     modeMessage("СОВМЕСТНЫЙ КОНВОЙ УЖЕ ИДЁТ");
     return;
