@@ -12,7 +12,7 @@ export function createRoomConnection({
   const clear=()=>{try{session?.removeItem(key);}catch(_){}};
   let socket=null,id=null,token=read()?.token||null;
   let room=null,status="offline",pending=null,desired=false;
-  let reconnectTimer=null,retry=0,lastSend=0,connectionEpoch=0,resuming=false;
+  let reconnectTimer=null,retry=0,lastSend=-Infinity,connectionEpoch=0,resuming=false;
   let nickname="Водитель";
   let serverOverride=new URLSearchParams(location.search||"").get("server")||"";
   const getState=()=>({id,room,status,desired,nickname});
