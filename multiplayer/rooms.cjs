@@ -137,6 +137,9 @@ function createRoomManager({now=Date.now,codeFactory=null}={}){
       type:'error',code:'need_partner',message:'Нужен хотя бы один напарник'});return;}
     if(members.length!==room.members.size){send(client.ws,{
       type:'error',code:'absent_player',message:'Подождите возвращения всех участников'});return;}
+    // All drivers reposition at their workshop spawn when the race begins.
+    // Clear stale pre-race poses so legitimate respawns aren't flagged as teleports.
+    for(const member of members){member.state=null;member.lastStateAt=0;}
     room.race={stage:0,reached:new Set(),startedAt:now()};
     announce(room,{type:'race-start',stage:0,targets:CHECKPOINTS,
       startedAt:room.race.startedAt});
@@ -219,6 +222,10 @@ function createRoomManager({now=Date.now,codeFactory=null}={}){
       }else if(data.type==='create-room')create(current);
       else if(data.type==='join-room')join(current,data.code);
       else if(data.type==='leave-room')leave(current);
+      else if(data.type==='reset-position'){
+        const room=findRoom(current);
+        if(room&&!room.race){current.state=null;current.lastStateAt=0;}
+      }
       else if(data.type==='start-race')startRace(current);
       else if(data.type==='state')receiveState(current,data.state);
     }

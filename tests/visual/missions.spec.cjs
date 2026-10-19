@@ -27,10 +27,14 @@ test("missions: four modes open, start, reset and switch without losing gameplay
  }
  await page.locator("#modeCloseBtn").click();
  await page.keyboard.down("w");
- await page.waitForTimeout(1800);
- const moving=Number(await page.locator("#speedValue").textContent());
- await page.keyboard.up("w");
- expect(moving).toBeGreaterThan(0);
+ try {
+   // Software WebGL in CI may render at only a few frames per second;
+   // wait for actual simulation advancement instead of a fixed wall clock.
+   await expect.poll(async()=>Number(await page.locator("#speedValue").textContent()),
+     {timeout:18000,intervals:[400,800,1500]}).toBeGreaterThan(0);
+ } finally {
+   await page.keyboard.up("w");
+ }
  await page.locator("#resetBtn").click();
  await expect(page.locator("#courseStatus")).toContainText("Ворота 1/");
  expect(errors).toEqual([]);
