@@ -125,6 +125,11 @@ function createRoomManager({now=Date.now,codeFactory=null,physicsFactory=null}={
     publish(room);
   }
   function create(client){
+    if(rooms.size>=64){
+      send(client.ws,{type:'error',code:'server_busy',
+        message:'Сервер временно заполнен. Повторите позже.'});
+      return;
+    }
     leave(client,{notify:false});
     const code=makeCode();
     const room={code,host:client.id,members:new Set(),race:null,
