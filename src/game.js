@@ -195,6 +195,36 @@ function makeGroundAndBounds() {
   });
 }
 
+// Physical sloped ramps: render mesh and Rapier collider share one transform.
+function makeRamps() {
+  const ramps = [
+    {x: -45, z: -39, angle: -0.18, color: 0x9b6845},
+    {x: 46, z: 38, angle: -0.24, color: 0x788f9b}
+  ];
+  const width = 7.4, depth = 11, thickness = 0.5;
+  ramps.forEach((data) => {
+    const angle = data.angle;
+    const height = depth / 2 * Math.sin(-angle) - thickness / 2 * Math.cos(angle);
+    const quat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0),angle);
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(width,thickness,depth),
+      new THREE.MeshStandardMaterial({
+        color:data.color,roughness:0.81,metalness:0.05
+      }));
+    mesh.position.set(data.x,height,data.z);
+    mesh.quaternion.copy(quat);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    scene.add(mesh);
+    const rb = world.createRigidBody(RAPIER.RigidBodyDesc.fixed()
+      .setTranslation(data.x,height,data.z)
+      .setRotation({x:quat.x,y:quat.y,z:quat.z,w:quat.w}));
+    const collider = world.createCollider(
+      RAPIER.ColliderDesc.cuboid(width/2,thickness/2,depth/2)
+        .setFriction(0.63).setRestitution(0.02),rb);
+    registerBody(rb,mesh,collider,{type:"ramp"});
+  });
+}
+
 function spawnProps(count = 18) {
   const meshes = [];
   for (let i = 0; i < count; i++) {
@@ -1779,6 +1809,7 @@ function tick(now) {
 
 async function startGame() {
   makeGroundAndBounds();
+  makeRamps();
   spawnProps(20);
   await setupPlayerCar();
   document.getElementById("loadOverlay").hidden = true;
