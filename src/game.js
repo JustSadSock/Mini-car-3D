@@ -1319,6 +1319,8 @@ window.addEventListener("keydown", (e) => {
   keys.add(e.code);
   if (!e.repeat && e.code === "KeyR") resetCar();
   if (!e.repeat && e.code === "KeyL") toggleLights();
+  if (!e.repeat && e.code === "KeyF") recoverCar();
+  if (!e.repeat && e.code === "KeyP") toggleDiagnostics();
 });
 window.addEventListener("keyup", (e) => { keys.delete(e.code); });
 
@@ -1383,18 +1385,57 @@ function resetCar() {
   previousTransforms.delete(rb.handle);
   inputX = inputY = 0;
   releaseJoy();
+  playerPhysics.controller?.reset();
+  playerPhysics.telemetry = null;
+  recoveryTimer = 0;
+  carRecoveryHint = "";
   cameraShake = 0;
   camera.position.copy(CAMERA.offset).add(car.position);
   challenge.reset();
   updateDrivingHud(1);
 }
 
+function recoverCar() {
+  const rb=playerPhysics.body;
+  if(!car||!rb)return;
+  const p=rb.translation();
+  const r=rb.rotation();
+  const planar=new THREE.Vector3(0,0,1).applyQuaternion(
+    new THREE.Quaternion(r.x,r.y,r.z,r.w));
+  const yaw=Math.atan2(planar.x,planar.z);
+  const spawn=getSafeSpawnTransform(NETWORK.id||"local").position;
+  const outside=Math.abs(p.x)>101||Math.abs(p.z)>101;
+  const destination=outside ? spawn : {
+    x:p.x,y:Math.max(1.8,Math.min(p.y+1.2,4)),z:p.z
+  };
+  const q=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),
+    Number.isFinite(yaw)?yaw:0);
+  rb.setTranslation(destination,true);
+  rb.setRotation({x:q.x,y:q.y,z:q.z,w:q.w},true);
+  rb.setLinvel({x:0,y:0,z:0},true);
+  rb.setAngvel({x:0,y:0,z:0},true);
+  car.position.set(destination.x,destination.y,destination.z);
+  car.quaternion.copy(q);
+  previousTransforms.delete(rb.handle);
+  playerPhysics.controller?.reset();
+  inputX=inputY=0;
+  releaseJoy();
+  recoveryTimer=0;
+  carRecoveryHint="";
+}
+function toggleDiagnostics() {
+  diagnosticEnabled=!diagnosticEnabled;
+  document.getElementById("physicsDebug").hidden=!diagnosticEnabled;
+  document.getElementById("physicsBtn").setAttribute("aria-pressed",String(diagnosticEnabled));
+}
 function toggleLights() {
   if (!car) return;
   car.userData.setLights?.(!car.userData.lightsOn);
   document.getElementById("lightsBtn").setAttribute("aria-pressed", String(car.userData.lightsOn));
 }
 document.getElementById("resetBtn").addEventListener("click", resetCar);
+document.getElementById("recoverBtn").addEventListener("click", recoverCar);
+document.getElementById("physicsBtn").addEventListener("click", toggleDiagnostics);
 document.getElementById("lightsBtn").addEventListener("click", toggleLights);
 
 let hudClock = 0;
@@ -1407,6 +1448,17 @@ function updateDrivingHud(dt) {
   document.getElementById("courseStatus").textContent = s.finished ? "ФИНИШ · Новый круг" :
     (s.running ? `Ворота ${s.next}/${s.total} · ${s.time.toFixed(1)} с` : `Ворота ${s.next}/${s.total} · Старт`);
   document.getElementById("recordValue").textContent = s.best ? `${s.best.toFixed(2)} с` : "—";
+  const state=playerPhysics.telemetry;
+  document.getElementById("surfaceStatus").textContent = carRecoveryHint ||
+    (!state || !state.grounded ? "В ВОЗДУХЕ" :
+      `${SURFACES[state.surface]?.label || "ПОВЕРХНОСТЬ"} · ${state.contacts}/4`);
+  if(diagnosticEnabled) {
+    const springs=playerPhysics.controller?.getCompression() || [];
+    document.getElementById("physicsDebug").textContent =
+      `Опоры: ${state?.contacts || 0}/4 · сцепление: ${(state?.grip || 0).toFixed(2)} · ` +
+      `снос: ${(state?.slip || 0).toFixed(2)} м/с · ` +
+      `ход пружин: ${springs.map(n=>(n*100).toFixed(0)).join(" / ")} см`;
+  }
 }
 
 function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
